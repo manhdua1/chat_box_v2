@@ -163,8 +163,25 @@ bool AuthManager::updateAvatar(const std::string& userId, const std::string& ava
 }
 
 void AuthManager::cleanupExpiredSessions() {
-    // TODO: Implement cleanup
-    Logger::info("Session cleanup - TODO");
+    try {
+        auto session = db_->getSession();
+        if (session) {
+            // Delete sessions older than 24 hours without heartbeat
+            auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+            uint64_t cutoff = now - (24 * 60 * 60);  // 24 hours ago
+            
+            auto result = session->sql(
+                "DELETE FROM sessions WHERE last_heartbeat < ? OR last_heartbeat IS NULL"
+            ).bind(cutoff).execute();
+            
+            auto affected = result.getAffectedItemsCount();
+            if (affected > 0) {
+                Logger::info("🧹 Cleaned up " + std::to_string(affected) + " expired sessions");
+            }
+        }
+    } catch (const std::exception& e) {
+        Logger::error("Session cleanup error: " + std::string(e.what()));
+    }
 }
 
 // Private helper methods

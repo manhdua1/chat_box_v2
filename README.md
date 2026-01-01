@@ -1,5 +1,7 @@
 # ChatBox Web - Real-time Chat Application
 
+**Last Updated:** January 1, 2026
+
 A full-featured real-time chat application with WebSocket communication, MySQL database, and modern React UI.
 
 ## 🚀 Quick Start

@@ -1,5 +1,7 @@
 # Backend Server - Dependencies Installation Guide
 
+**Last Updated:** January 1, 2026
+
 ## 📦 Required Dependencies
 
 ### **1. AWS SDK C++**

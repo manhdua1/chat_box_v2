@@ -1,4 +1,6 @@
--- Phase 2: Multiple Chat Rooms Schema
+-- Migration: Add rooms tables
+-- Date: 2025-12-18
+-- Description: Create tables for multiple chat rooms support
 
 -- Create rooms table
 CREATE TABLE IF NOT EXISTS rooms (

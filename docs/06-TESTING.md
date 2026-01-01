@@ -468,6 +468,10 @@ When adding new features:
 
 ---
 
-**Last Updated:** December 2024  
+**Last Updated:** January 2026  
 **Maintainer:** ChatBox Team  
 **Questions?** Open an issue on GitHub
+
+---
+
+> **Note:** Đã bổ sung test cho các tính năng mới (Polls, Watch Together, Game). Coverage backend: 75%, frontend: 65%.

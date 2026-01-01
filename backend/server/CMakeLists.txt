@@ -33,13 +33,8 @@ set(SERVER_SOURCES
     src/pubsub/pubsub_broker.cpp
     src/websocket/websocket_server.cpp
     src/ai/gemini_client.cpp
-    src/handlers/bot_handler.cpp
-    src/handlers/game_handler.cpp
-    src/handlers/watch_handler.cpp
-    src/handlers/scheduled_handler.cpp
     src/handlers/webrtc_handler.cpp
     src/handlers/file_handler.cpp
-    src/game/tictactoe.cpp
 )
 
 # Server executable

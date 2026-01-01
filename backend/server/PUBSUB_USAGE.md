@@ -1,5 +1,7 @@
 # Pub/Sub Broker Usage Guide
 
+**Last Updated:** January 1, 2026
+
 ## Overview
 
 The PubSub broker provides real-time message routing based on topics.

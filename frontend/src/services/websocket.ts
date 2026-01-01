@@ -1,5 +1,21 @@
 // WebSocket client for JSON protocol communication with C++ backend
-export const WS_URL = 'ws://localhost:8080'
+
+// Auto-detect WebSocket URL based on current page URL
+const getWebSocketUrl = (): string => {
+    const { protocol, hostname } = window.location;
+    
+    // VS Code Port Forwarding: hostname contains devtunnels.ms
+    if (hostname.includes('devtunnels.ms')) {
+        const wsHost = hostname.replace(/-\d+\./, '-8080.');
+        return `wss://${wsHost}`;
+    }
+    
+    // Local/LAN: use same host with port 8080
+    const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProtocol}//${hostname}:8080`;
+};
+
+export const WS_URL = getWebSocketUrl()
 
 export interface Message {
     messageId: string

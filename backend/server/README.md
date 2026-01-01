@@ -1,5 +1,7 @@
 # ChatBox1 Backend - Server
 
+**Last Updated:** January 1, 2026
+
 ## 📁 Structure
 
 ```

@@ -213,6 +213,64 @@ bool MySQLClient::connect() {
             Logger::error("Migration (edited_at) failed: " + std::string(e.what()));
         }
 
+        // Migration: Create message_reads table for read receipts
+        try {
+            session_->sql("SELECT 1 FROM message_reads LIMIT 1").execute();
+        } catch (...) {
+            Logger::info("Migration: Creating message_reads table");
+            try {
+                session_->sql(
+                    "CREATE TABLE IF NOT EXISTS message_reads ("
+                    "message_id VARCHAR(64) NOT NULL,"
+                    "user_id VARCHAR(64) NOT NULL,"
+                    "read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                    "PRIMARY KEY (message_id, user_id),"
+                    "INDEX idx_user (user_id),"
+                    "INDEX idx_message (message_id)"
+                    ")"
+                ).execute();
+                Logger::info("✓ message_reads table created");
+            } catch (const std::exception& e) {
+                Logger::error("Migration (message_reads) failed: " + std::string(e.what()));
+            }
+        }
+
+        // Migration: Add display_name and status_message columns to users table
+        try {
+            auto result = session_->sql(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE table_schema = ? AND table_name = 'users' AND column_name = 'display_name'"
+            ).bind(database_).execute();
+            auto row = result.fetchOne();
+            int count = row[0].get<int>();
+            
+            if (count == 0) {
+                Logger::info("Migration: Adding display_name column to users table");
+                session_->sql("ALTER TABLE users ADD COLUMN display_name VARCHAR(100) DEFAULT ''").execute();
+                Logger::info("✓ display_name column added to users table");
+            }
+        } catch (const std::exception& e) {
+            Logger::error("Migration (display_name) failed: " + std::string(e.what()));
+        }
+
+        // Migration: Add status_message column to users table
+        try {
+            auto result = session_->sql(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE table_schema = ? AND table_name = 'users' AND column_name = 'status_message'"
+            ).bind(database_).execute();
+            auto row = result.fetchOne();
+            int count = row[0].get<int>();
+            
+            if (count == 0) {
+                Logger::info("Migration: Adding status_message column to users table");
+                session_->sql("ALTER TABLE users ADD COLUMN status_message VARCHAR(255) DEFAULT ''").execute();
+                Logger::info("✓ status_message column added to users table");
+            }
+        } catch (const std::exception& e) {
+            Logger::error("Migration (status_message) failed: " + std::string(e.what()));
+        }
+
         Logger::info("✓ MySQL connected: " + database_);
         return true;
     } catch (const std::exception& e) {
@@ -357,8 +415,17 @@ std::vector<User> MySQLClient::getAllUsers() {
 
 bool MySQLClient::updateUserStatus(const std::string& userId, int status) {
     try {
+        // Convert int status to string enum value (database uses ENUM)
+        std::string statusStr;
+        switch(status) {
+            case 1: statusStr = "online"; break;
+            case 2: statusStr = "away"; break;
+            case 3: statusStr = "busy"; break;
+            case 0: 
+            default: statusStr = "offline"; break;
+        }
         session_->sql("UPDATE users SET status = ? WHERE user_id = ?")
-            .bind(status, userId).execute();
+            .bind(statusStr, userId).execute();
         return true;
     } catch (const std::exception& e) {
         handleException(e, "updateUserStatus");
@@ -532,7 +599,7 @@ bool MySQLClient::createMessage(const Message& message) {
 
 std::optional<Message> MySQLClient::getMessage(const std::string& messageId) {
     try {
-        auto result = session_->sql("SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), metadata FROM messages WHERE message_id = ?")
+        auto result = session_->sql("SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), CAST(metadata AS CHAR) FROM messages WHERE message_id = ?")
             .bind(messageId).execute();
         auto row = result.fetchOne();
         if (!row) return std::nullopt;
@@ -551,7 +618,11 @@ std::optional<Message> MySQLClient::getMessage(const std::string& messageId) {
         }
         msg.replyToId = row[6].isNull() ? "" : row[6].get<std::string>();
         msg.timestamp = row[7].get<uint64_t>();
-        msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+        try {
+            msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+        } catch (...) {
+            msg.metadata = "";
+        }
         return msg;
     } catch (const std::exception& e) {
         handleException(e, "getMessage");
@@ -562,7 +633,7 @@ std::optional<Message> MySQLClient::getMessage(const std::string& messageId) {
 std::vector<Message> MySQLClient::getMessagesByRoom(const std::string& roomId, int limit) {
     std::vector<Message> messages;
     try {
-        auto result = session_->sql("SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), metadata FROM messages WHERE room_id = ? ORDER BY created_at DESC LIMIT ?")
+        auto result = session_->sql("SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), CAST(metadata AS CHAR) FROM messages WHERE room_id = ? ORDER BY created_at DESC LIMIT ?")
             .bind(roomId, limit).execute();
         
         for (auto row : result) {
@@ -580,7 +651,11 @@ std::vector<Message> MySQLClient::getMessagesByRoom(const std::string& roomId, i
             }
             msg.replyToId = row[6].isNull() ? "" : row[6].get<std::string>();
             msg.timestamp = row[7].get<uint64_t>();
-            msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+            try {
+                msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+            } catch (...) {
+                msg.metadata = "";
+            }
             messages.push_back(msg);
         }
     } catch (const std::exception& e) {
@@ -595,7 +670,7 @@ std::vector<Message> MySQLClient::getRecentMessages(const std::string& roomId, i
         Logger::info("📚 Loading recent messages for room: " + roomId + " (limit=" + std::to_string(limit) + ", offset=" + std::to_string(offset) + ")");
         
         auto result = session_->sql(
-            "SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), metadata "
+            "SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), CAST(metadata AS CHAR) "
             "FROM messages WHERE room_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
             .bind(roomId, limit, offset).execute();
         
@@ -614,7 +689,12 @@ std::vector<Message> MySQLClient::getRecentMessages(const std::string& roomId, i
             }
             msg.replyToId = row[6].isNull() ? "" : row[6].get<std::string>();
             msg.timestamp = row[7].get<uint64_t>();
-            msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+            // JSON metadata - cast to string
+            try {
+                msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+            } catch (...) {
+                msg.metadata = "";
+            }
             messages.push_back(msg);
         }
         
@@ -636,7 +716,7 @@ std::vector<Message> MySQLClient::getMessageReplies(const std::string& messageId
         Logger::info("Loading replies for message: " + messageId);
         
         auto result = session_->sql(
-            "SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), metadata "
+            "SELECT message_id, room_id, sender_id, sender_name, content, COALESCE(message_type, 0), reply_to_id, UNIX_TIMESTAMP(created_at), CAST(metadata AS CHAR) "
             "FROM messages WHERE reply_to_id = ? ORDER BY created_at ASC LIMIT ?")
             .bind(messageId, limit).execute();
         
@@ -654,7 +734,11 @@ std::vector<Message> MySQLClient::getMessageReplies(const std::string& messageId
             }
             msg.replyToId = row[6].isNull() ? "" : row[6].get<std::string>();
             msg.timestamp = row[7].get<uint64_t>();
-            msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+            try {
+                msg.metadata = row[8].isNull() ? "" : row[8].get<std::string>();
+            } catch (...) {
+                msg.metadata = "";
+            }
             replies.push_back(msg);
         }
         

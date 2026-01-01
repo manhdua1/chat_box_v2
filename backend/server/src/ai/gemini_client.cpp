@@ -15,7 +15,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
 
 GeminiClient::GeminiClient(const std::string& apiKey)
     : apiKey_(apiKey)
-    , apiEndpoint_("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") {
+    , apiEndpoint_("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent") {
     Logger::info("Gemini AI client initialized");
 }
 
@@ -69,12 +69,17 @@ std::optional<std::string> GeminiClient::makeRequest(const std::string& jsonPayl
     std::string responseData;
     std::string url = apiEndpoint_ + "?key=" + apiKey_;
     
+    // Debug log
+    Logger::info("Gemini URL: " + apiEndpoint_);
+    Logger::info("Gemini Payload: " + jsonPayload.substr(0, 200));
+    
     // Set CURL options
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonPayload.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseData);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);  // 30 second timeout
     
     // Set headers
     struct curl_slist* headers = NULL;

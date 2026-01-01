@@ -1,6 +1,7 @@
--- Phase 2: Edit/Delete Messages Schema Update
+-- Migration: Add edit/delete columns to messages
+-- Date: 2025-12-18
+-- Description: Add columns to support message editing and deletion
 
--- Add columns to support message editing and deletion
 ALTER TABLE messages 
 ADD COLUMN edited_at DATETIME NULL AFTER created_at,
 ADD COLUMN is_deleted TINYINT(1) DEFAULT 0 AFTER edited_at,

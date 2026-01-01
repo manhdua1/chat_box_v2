@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Smile, Paperclip } from 'lucide-react'
+import { Send, Smile, Paperclip, Sticker, MapPin } from 'lucide-react'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { useWebSocket } from '@/contexts/WebSocketContext'
 import { useFileUpload } from '@/hooks/useFileUpload'
 import { CommandMenu } from './CommandMenu'
 import { UploadProgressBar } from './UploadProgressBar'
 import { VoiceRecorder } from './VoiceRecorder'
+import { StickerPicker } from './StickerPicker'
+import { LocationPicker } from './LocationPicker'
 
 interface MessageInputProps {
     onSend?: (content: string, metadata?: any) => void
@@ -14,11 +16,13 @@ interface MessageInputProps {
 export function MessageInput({ onSend }: MessageInputProps) {
     const [message, setMessage] = useState('')
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+    const [showStickerPicker, setShowStickerPicker] = useState(false)
+    const [showLocationPicker, setShowLocationPicker] = useState(false)
     const [showCommandMenu, setShowCommandMenu] = useState(false)
     const [commandFilter, setCommandFilter] = useState('')
     const [isRecording, setIsRecording] = useState(false)
 
-    const { sendMessage, isConnected, sendTypingStatus, currentRoomId, ws } = useWebSocket()
+    const { sendMessage, isConnected, sendTypingStatus, currentRoomId, ws, sendSticker, sendLocation } = useWebSocket()
     const {
         filePreview,
         uploadProgress,
@@ -99,6 +103,16 @@ export function MessageInput({ onSend }: MessageInputProps) {
         setMessage(newMessage)
         setShowEmojiPicker(false)
         inputRef.current?.focus()
+    }
+
+    const handleStickerSelect = (sticker: string) => {
+        sendSticker(sticker, currentRoomId)
+        setShowStickerPicker(false)
+    }
+
+    const handleLocationSelect = (latitude: number, longitude: number, _locationName?: string) => {
+        sendLocation(latitude, longitude, currentRoomId)
+        setShowLocationPicker(false)
     }
 
     // Cleanup on unmount
@@ -212,24 +226,81 @@ export function MessageInput({ onSend }: MessageInputProps) {
                                 accept="*/*"
                             />
 
-                            {/* Emoji button */}
-                            <button
-                                type="button"
-                                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-400 transition-colors"
-                                title="Add emoji"
-                            >
-                                <Smile className="w-5 h-5" />
-                            </button>
+                            {/* Action buttons row */}
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                {/* Sticker button */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowStickerPicker(!showStickerPicker)
+                                        setShowEmojiPicker(false)
+                                        setShowLocationPicker(false)
+                                    }}
+                                    className="text-slate-400 hover:text-purple-400 transition-colors p-1"
+                                    title="Send sticker"
+                                >
+                                    <Sticker className="w-4 h-4" />
+                                </button>
+
+                                {/* Location button */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowLocationPicker(!showLocationPicker)
+                                        setShowEmojiPicker(false)
+                                        setShowStickerPicker(false)
+                                    }}
+                                    className="text-slate-400 hover:text-purple-400 transition-colors p-1"
+                                    title="Share location"
+                                >
+                                    <MapPin className="w-4 h-4" />
+                                </button>
+
+                                {/* Emoji button */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowEmojiPicker(!showEmojiPicker)
+                                        setShowStickerPicker(false)
+                                        setShowLocationPicker(false)
+                                    }}
+                                    className="text-slate-400 hover:text-purple-400 transition-colors p-1"
+                                    title="Add emoji"
+                                >
+                                    <Smile className="w-4 h-4" />
+                                </button>
+                            </div>
 
                             {/* Emoji picker popup */}
                             {showEmojiPicker && (
-                                <div className="absolute bottom-full right-0 mb-2">
+                                <div className="absolute bottom-full right-0 mb-2 z-50">
                                     <EmojiPicker
                                         onEmojiClick={handleEmojiClick}
                                         theme={Theme.DARK}
                                         width={350}
                                         height={400}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Sticker picker popup */}
+                            {showStickerPicker && (
+                                <div className="absolute bottom-full right-0 mb-2 z-50">
+                                    <StickerPicker
+                                        isOpen={showStickerPicker}
+                                        onSelectSticker={handleStickerSelect}
+                                        onClose={() => setShowStickerPicker(false)}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Location picker popup */}
+                            {showLocationPicker && (
+                                <div className="absolute bottom-full right-0 mb-2 z-50">
+                                    <LocationPicker
+                                        isOpen={showLocationPicker}
+                                        onSelectLocation={handleLocationSelect}
+                                        onClose={() => setShowLocationPicker(false)}
                                     />
                                 </div>
                             )}

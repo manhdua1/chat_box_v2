@@ -1,7 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCallStore } from '@/stores/callStore';
 
-const WS_URL = 'ws://localhost:8080/';
+// Auto-detect WebSocket URL based on current page URL
+// Supports: localhost, LAN IP, VS Code Port Forwarding (devtunnels)
+const getWebSocketUrl = (): string => {
+    const { protocol, hostname } = window.location;
+    
+    // VS Code Port Forwarding: hostname contains devtunnels.ms
+    if (hostname.includes('devtunnels.ms')) {
+        // Convert: xxx-5173.xxx.devtunnels.ms -> xxx-8080.xxx.devtunnels.ms
+        const wsHost = hostname.replace(/-\d+\./, '-8080.');
+        return `wss://${wsHost}`;
+    }
+    
+    // Local/LAN: use same host with port 8080
+    const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProtocol}//${hostname}:8080`;
+};
+
+const WS_URL = getWebSocketUrl();
 
 interface Message {
     id: string;
@@ -149,8 +166,8 @@ export function useWebSocket() {
                 setMessages(prev => {
                     const roomMessages = prev[data.roomId] || [];
                     // Check if message already exists (prevent duplicates)
-                    const messageExists = roomMessages.some(m =>
-                        m.id === data.messageId ||
+                    const messageExists = roomMessages.some(m => 
+                        m.id === data.messageId || 
                         (m.content === data.content && m.senderId === data.userId && Math.abs(m.timestamp - (data.timestamp || Date.now())) < 1000)
                     );
                     if (messageExists) {
@@ -477,26 +494,6 @@ export function useWebSocket() {
                 ));
                 break;
 
-            case 'auth_response':
-                // Auth response is handled - user authenticated
-                console.log('✅ Auth response:', data.success ? 'authenticated' : 'failed');
-                break;
-
-            case 'room_left':
-                // Room left acknowledgement
-                console.log('👋 Left room:', data.roomId);
-                break;
-
-            case 'login_response':
-                // Handled by login() function's event listener
-                console.log('🔑 Login response:', data.success ? 'success' : 'failed');
-                break;
-
-            case 'register_response':
-                // Handled by register() function's event listener
-                console.log('📝 Register response:', data.success ? 'success' : 'failed');
-                break;
-
             default:
                 console.log('Unknown message type:', data.type, data);
         }
@@ -641,31 +638,28 @@ export function useWebSocket() {
         });
     }, []);
 
-    const createRoom = useCallback((name: string) => {
+    const createRoom = useCallback((name: string, roomType?: 'public' | 'private' | 'group') => {
         send({
             type: 'create_room',
-            name
+            name,
+            roomType: roomType || 'public'
         });
     }, [send]);
 
-    const editMessage = useCallback((messageId: string, newContent: string, roomId?: string) => {
-        console.log('✏️ Editing message:', messageId, 'in room:', roomId || currentRoomId);
+    const editMessage = useCallback((messageId: string, newContent: string) => {
         send({
             type: 'edit_message',
             messageId,
-            newContent,
-            roomId: roomId || currentRoomId
+            newContent
         });
-    }, [send, currentRoomId]);
+    }, [send]);
 
-    const deleteMessage = useCallback((messageId: string, roomId?: string) => {
-        console.log('🗑️ Deleting message:', messageId, 'in room:', roomId || currentRoomId);
+    const deleteMessage = useCallback((messageId: string) => {
         send({
             type: 'delete_message',
-            messageId,
-            roomId: roomId || currentRoomId
+            messageId
         });
-    }, [send, currentRoomId]);
+    }, [send]);
 
     const addReaction = useCallback((messageId: string, emoji: string) => {
         send({

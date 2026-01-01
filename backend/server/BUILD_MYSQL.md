@@ -1,5 +1,7 @@
 # ChatBox Backend - Build Instructions (MySQL Version)
 
+**Last Updated:** January 1, 2026
+
 ## Prerequisites
 
 ### 1. Install MySQL Server

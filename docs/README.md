@@ -1,5 +1,7 @@
 # Documentation Index
 
+**Last Updated:** January 1, 2026
+
 Welcome to ChatBox documentation!
 
 ## 📖 Getting Started

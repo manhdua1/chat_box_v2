@@ -56,7 +56,8 @@ WebSocketServer::WebSocketServer(int port,
     , authManager_(authManager)
     , geminiClient_(geminiClient)
     , webrtcHandler_(std::make_shared<WebRTCHandler>(broker))
-    , fileHandler_(std::make_shared<FileHandler>(nullptr, nullptr, broker)) {
+    , fileHandler_(std::make_shared<FileHandler>(nullptr, nullptr, broker))
+    , dbClient_(authManager ? authManager->getDatabase() : nullptr) {
     
     Logger::info("✓ WebSocket server khởi tạo với Protocol Support trên port " + std::to_string(port));
 }
@@ -173,7 +174,7 @@ void WebSocketServer::run() {
 
                     json response = {
                         {"status", "ok"},
-                        {"url", "http://localhost:8081/uploads/" + state->storageFilename},
+                        {"url", "http://localhost:8080/uploads/" + state->storageFilename},
                         {"filename", state->filename},
                         {"size", state->totalBytes},
                         {"sizeFormatted", sizeStr}
@@ -717,8 +718,26 @@ void WebSocketServer::run() {
                             
                             Logger::info("👤 Profile update from " + data->username);
                             
-                            // TODO: Save to database
-                            // For now, broadcast the update
+                            // Save to database
+                            bool saved = false;
+                            try {
+                                auto session = dbClient_->getSession();
+                                if (session) {
+                                    session->sql(
+                                        "UPDATE users SET "
+                                        "display_name = COALESCE(NULLIF(?, ''), display_name), "
+                                        "status_message = ?, "
+                                        "avatar_url = COALESCE(NULLIF(?, ''), avatar_url) "
+                                        "WHERE user_id = ?"
+                                    ).bind(displayName, statusMessage, avatar, data->userId).execute();
+                                    saved = true;
+                                    Logger::info("✅ Profile saved to database");
+                                }
+                            } catch (const std::exception& e) {
+                                Logger::warning("Failed to save profile: " + std::string(e.what()));
+                            }
+                            
+                            // Broadcast the update
                             json broadcastMsg = {
                                 {"type", "profile_updated"},
                                 {"userId", data->userId},
@@ -731,8 +750,8 @@ void WebSocketServer::run() {
                             // Confirm to sender
                             json response = {
                                 {"type", "profile_update_response"},
-                                {"success", true},
-                                {"message", "Profile updated successfully"}
+                                {"success", saved},
+                                {"message", saved ? "Profile updated successfully" : "Profile updated (broadcast only)"}
                             };
                             sendJsonMessage((void*)ws, response.dump());
                         } else {
@@ -1050,6 +1069,315 @@ void WebSocketServer::run() {
                             sendErrorJson((void*)ws, "Not authenticated");
                         }
                     }
+                    // ============== Forward Message ==============
+                    else if (type == "forward_message") {
+                        if (data->authenticated) {
+                            std::string messageId = msg.value("messageId", "");
+                            std::string targetRoomId = msg.value("targetRoomId", "");
+                            
+                            if (messageId.empty() || targetRoomId.empty()) {
+                                sendErrorJson((void*)ws, "messageId and targetRoomId required");
+                            } else {
+                                // Get original message from database
+                                auto originalMsg = dbClient_->getMessage(messageId);
+                                if (originalMsg) {
+                                    // Create forwarded message
+                                    uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+                                    std::string newMsgId = "msg-" + std::to_string(now) + "-" + data->userId.substr(0, 8);
+                                    
+                                    Message forwardedMsg;
+                                    forwardedMsg.messageId = newMsgId;
+                                    forwardedMsg.roomId = targetRoomId;
+                                    forwardedMsg.senderId = data->userId;
+                                    forwardedMsg.senderName = data->username;
+                                    forwardedMsg.content = originalMsg->content;
+                                    forwardedMsg.timestamp = now;
+                                    forwardedMsg.metadata = "{\"forwarded_from\": \"" + messageId + "\", \"original_sender\": \"" + originalMsg->senderName + "\"}";
+                                    
+                                    if (dbClient_->createMessage(forwardedMsg)) {
+                                        json response = {
+                                            {"type", "message_forwarded"},
+                                            {"messageId", newMsgId},
+                                            {"originalMessageId", messageId},
+                                            {"targetRoomId", targetRoomId},
+                                            {"content", originalMsg->content},
+                                            {"forwardedBy", data->username},
+                                            {"originalSender", originalMsg->senderName},
+                                            {"timestamp", now * 1000}
+                                        };
+                                        
+                                        broadcastToRoom(targetRoomId, response.dump());
+                                        sendJsonMessage((void*)ws, json({{"type", "forward_success"}, {"messageId", newMsgId}}).dump());
+                                        Logger::info("↗️ Message forwarded by " + data->username);
+                                    } else {
+                                        sendErrorJson((void*)ws, "Failed to forward message");
+                                    }
+                                } else {
+                                    sendErrorJson((void*)ws, "Original message not found");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    // ============== Block/Unblock User ==============
+                    else if (type == "user_block") {
+                        if (data->authenticated) {
+                            std::string targetUserId = msg.value("targetUserId", "");
+                            
+                            if (targetUserId.empty()) {
+                                sendErrorJson((void*)ws, "targetUserId required");
+                            } else if (targetUserId == data->userId) {
+                                sendErrorJson((void*)ws, "Cannot block yourself");
+                            } else {
+                                if (dbClient_->blockUser(data->userId, targetUserId)) {
+                                    json response = {
+                                        {"type", "user_blocked"},
+                                        {"targetUserId", targetUserId},
+                                        {"success", true}
+                                    };
+                                    sendJsonMessage((void*)ws, response.dump());
+                                    Logger::info("🚫 User " + data->username + " blocked " + targetUserId);
+                                } else {
+                                    sendErrorJson((void*)ws, "Failed to block user");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    else if (type == "user_unblock") {
+                        if (data->authenticated) {
+                            std::string targetUserId = msg.value("targetUserId", "");
+                            
+                            if (targetUserId.empty()) {
+                                sendErrorJson((void*)ws, "targetUserId required");
+                            } else {
+                                if (dbClient_->unblockUser(data->userId, targetUserId)) {
+                                    json response = {
+                                        {"type", "user_unblocked"},
+                                        {"targetUserId", targetUserId},
+                                        {"success", true}
+                                    };
+                                    sendJsonMessage((void*)ws, response.dump());
+                                    Logger::info("✅ User " + data->username + " unblocked " + targetUserId);
+                                } else {
+                                    sendErrorJson((void*)ws, "Failed to unblock user");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    else if (type == "get_blocked_users") {
+                        if (data->authenticated) {
+                            auto blockedUsers = dbClient_->getBlockedUsers(data->userId);
+                            json response = {
+                                {"type", "blocked_users_list"},
+                                {"blockedUsers", blockedUsers}
+                            };
+                            sendJsonMessage((void*)ws, response.dump());
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    // ============== Kick User from Room ==============
+                    else if (type == "kick_user") {
+                        if (data->authenticated) {
+                            std::string targetUserId = msg.value("targetUserId", "");
+                            std::string roomId = msg.value("roomId", "");
+                            
+                            if (targetUserId.empty() || roomId.empty()) {
+                                sendErrorJson((void*)ws, "targetUserId and roomId required");
+                            } else {
+                                // Check if user has permission (owner or admin)
+                                std::string role = dbClient_->getMemberRole(roomId, data->userId);
+                                if (role == "owner" || role == "admin") {
+                                    // Remove user from room
+                                    if (dbClient_->removeRoomMember(roomId, targetUserId)) {
+                                        // Notify kicked user
+                                        json kickNotify = {
+                                            {"type", "kicked_from_room"},
+                                            {"roomId", roomId},
+                                            {"kickedBy", data->username}
+                                        };
+                                        sendToUser(targetUserId, kickNotify.dump());
+                                        
+                                        // Notify room
+                                        json roomNotify = {
+                                            {"type", "user_kicked"},
+                                            {"roomId", roomId},
+                                            {"targetUserId", targetUserId},
+                                            {"kickedBy", data->username}
+                                        };
+                                        broadcastToRoom(roomId, roomNotify.dump());
+                                        
+                                        json response = {
+                                            {"type", "kick_success"},
+                                            {"targetUserId", targetUserId},
+                                            {"roomId", roomId}
+                                        };
+                                        sendJsonMessage((void*)ws, response.dump());
+                                        Logger::info("👢 User " + targetUserId + " kicked from " + roomId + " by " + data->username);
+                                    } else {
+                                        sendErrorJson((void*)ws, "Failed to kick user");
+                                    }
+                                } else {
+                                    sendErrorJson((void*)ws, "No permission to kick users");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    // ============== Invite User to Room ==============
+                    else if (type == "invite_user") {
+                        if (data->authenticated) {
+                            std::string targetUserId = msg.value("targetUserId", "");
+                            std::string roomId = msg.value("roomId", "");
+                            
+                            if (targetUserId.empty() || roomId.empty()) {
+                                sendErrorJson((void*)ws, "targetUserId and roomId required");
+                            } else {
+                                // Check if inviter is member of room
+                                auto members = dbClient_->getRoomMembers(roomId);
+                                bool isMember = std::find(members.begin(), members.end(), data->userId) != members.end();
+                                
+                                if (isMember) {
+                                    // Add user to room
+                                    if (dbClient_->addRoomMember(roomId, targetUserId)) {
+                                        // Get room info
+                                        auto room = dbClient_->getRoom(roomId);
+                                        std::string roomName = room ? room->name : roomId;
+                                        
+                                        // Notify invited user
+                                        json inviteNotify = {
+                                            {"type", "room_invitation"},
+                                            {"roomId", roomId},
+                                            {"roomName", roomName},
+                                            {"invitedBy", data->username}
+                                        };
+                                        sendToUser(targetUserId, inviteNotify.dump());
+                                        
+                                        // Notify room
+                                        json roomNotify = {
+                                            {"type", "user_invited"},
+                                            {"roomId", roomId},
+                                            {"targetUserId", targetUserId},
+                                            {"invitedBy", data->username}
+                                        };
+                                        broadcastToRoom(roomId, roomNotify.dump());
+                                        
+                                        json response = {
+                                            {"type", "invite_success"},
+                                            {"targetUserId", targetUserId},
+                                            {"roomId", roomId}
+                                        };
+                                        sendJsonMessage((void*)ws, response.dump());
+                                        Logger::info("📨 User " + targetUserId + " invited to " + roomId + " by " + data->username);
+                                    } else {
+                                        sendErrorJson((void*)ws, "Failed to invite user (maybe already member)");
+                                    }
+                                } else {
+                                    sendErrorJson((void*)ws, "You must be a room member to invite others");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    // ============== Sticker Message ==============
+                    else if (type == "chat_sticker") {
+                        if (data->authenticated) {
+                            std::string sticker = msg.value("sticker", "");
+                            std::string roomId = msg.value("roomId", "global");
+                            
+                            if (sticker.empty()) {
+                                sendErrorJson((void*)ws, "sticker required");
+                            } else {
+                                uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+                                std::string messageId = "sticker-" + std::to_string(now) + "-" + data->userId.substr(0, 8);
+                                
+                                Message stickerMsg;
+                                stickerMsg.messageId = messageId;
+                                stickerMsg.roomId = roomId;
+                                stickerMsg.senderId = data->userId;
+                                stickerMsg.senderName = data->username;
+                                stickerMsg.content = "[sticker:" + sticker + "]";
+                                stickerMsg.timestamp = now;
+                                stickerMsg.metadata = "{\"type\": \"sticker\", \"sticker\": \"" + sticker + "\"}";
+                                
+                                if (dbClient_->createMessage(stickerMsg)) {
+                                    json response = {
+                                        {"type", "chat"},
+                                        {"messageType", "sticker"},
+                                        {"messageId", messageId},
+                                        {"roomId", roomId},
+                                        {"userId", data->userId},
+                                        {"username", data->username},
+                                        {"sticker", sticker},
+                                        {"timestamp", now * 1000}
+                                    };
+                                    std::string responseStr = response.dump();
+                                    sendJsonMessage((void*)ws, responseStr);  // Echo to sender
+                                    broadcastToRoom(roomId, responseStr, data->userId);  // Broadcast to others
+                                    Logger::info("🎨 Sticker sent by " + data->username);
+                                } else {
+                                    sendErrorJson((void*)ws, "Failed to send sticker");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    // ============== Location Message ==============
+                    else if (type == "chat_location") {
+                        if (data->authenticated) {
+                            double latitude = msg.value("latitude", 0.0);
+                            double longitude = msg.value("longitude", 0.0);
+                            std::string roomId = msg.value("roomId", "global");
+                            
+                            if (latitude == 0.0 && longitude == 0.0) {
+                                sendErrorJson((void*)ws, "latitude and longitude required");
+                            } else {
+                                uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+                                std::string messageId = "loc-" + std::to_string(now) + "-" + data->userId.substr(0, 8);
+                                
+                                std::string locationStr = std::to_string(latitude) + "," + std::to_string(longitude);
+                                
+                                Message locMsg;
+                                locMsg.messageId = messageId;
+                                locMsg.roomId = roomId;
+                                locMsg.senderId = data->userId;
+                                locMsg.senderName = data->username;
+                                locMsg.content = "[location:" + locationStr + "]";
+                                locMsg.timestamp = now;
+                                locMsg.metadata = "{\"type\": \"location\", \"latitude\": " + std::to_string(latitude) + ", \"longitude\": " + std::to_string(longitude) + "}";
+                                
+                                if (dbClient_->createMessage(locMsg)) {
+                                    json response = {
+                                        {"type", "chat"},
+                                        {"messageType", "location"},
+                                        {"messageId", messageId},
+                                        {"roomId", roomId},
+                                        {"userId", data->userId},
+                                        {"username", data->username},
+                                        {"latitude", latitude},
+                                        {"longitude", longitude},
+                                        {"timestamp", now * 1000}
+                                    };
+                                    std::string responseStr = response.dump();
+                                    sendJsonMessage((void*)ws, responseStr);  // Echo to sender
+                                    broadcastToRoom(roomId, responseStr, data->userId);  // Broadcast to others
+                                    Logger::info("📍 Location sent by " + data->username);
+                                } else {
+                                    sendErrorJson((void*)ws, "Failed to send location");
+                                }
+                            }
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
                     else {
                         Logger::warning("Unknown message type: " + type);
                         sendErrorJson((void*)ws, "Unknown message type");
@@ -1075,8 +1403,32 @@ void WebSocketServer::run() {
                 if (data->authenticated) {
                     Logger::info("Client disconnected: " + data->username);
                     
-                    // Update user status to offline
-                    // TODO: Update database
+                    // Update user status to offline in database
+                    try {
+                        dbClient_->updateUserStatus(data->userId, 0);  // 0 = offline
+                        Logger::debug("Updated " + data->username + " status to offline");
+                    } catch (const std::exception& e) {
+                        Logger::warning("Failed to update offline status: " + std::string(e.what()));
+                    }
+                    
+                    // Broadcast offline presence to other users
+                    json offlineMsg = {
+                        {"type", "presence_update"},
+                        {"userId", data->userId},
+                        {"username", data->username},
+                        {"status", "offline"}
+                    };
+                    
+                    // Broadcast to all other connections
+                    {
+                        std::lock_guard<std::mutex> lock(connectionsMutex_);
+                        for (const auto& [key, state] : connections_) {
+                            if (state.authenticated && state.wsPtr && state.userId != data->userId) {
+                                auto* otherWs = (uWS::WebSocket<false, true, PerSocketData>*)state.wsPtr;
+                                otherWs->send(offlineMsg.dump(), uWS::OpCode::TEXT);
+                            }
+                        }
+                    }
                 } else {
                     Logger::info("Client disconnected (not authenticated)");
                 }
@@ -1212,6 +1564,17 @@ void WebSocketServer::handleLoginJson(void* wsPtr, const std::string& jsonStr) {
             data->userId = result.userId;
             data->username = username;
             data->sessionId = "ws-session-" + result.userId;
+            
+            // Update connection state in connections_ map for broadcast
+            {
+                std::lock_guard<std::mutex> lock(connectionsMutex_);
+                if (connections_.find(wsPtr) != connections_.end()) {
+                    connections_[wsPtr].authenticated = true;
+                    connections_[wsPtr].userId = result.userId;
+                    connections_[wsPtr].username = username;
+                    Logger::info("📝 Updated connection state for: " + username);
+                }
+            }
             
             json response = {
                 {"type", "login_response"},
@@ -1622,13 +1985,10 @@ void WebSocketServer::handleEditMessageJson(void* wsPtr, const std::string& json
             {"userId", data->userId}
         };
         
-        std::string responseStr = response.dump();
-        
-        // Send to sender first so their UI updates
-        sendJsonMessage(wsPtr, responseStr);
-        
-        // Broadcast to room (excludes sender to avoid duplicate)
-        broadcastToRoom(roomId, responseStr, data->userId);
+        // Send to sender first
+        sendJsonMessage(wsPtr, response.dump());
+        // Broadcast to room (excluding sender)
+        broadcastToRoom(roomId, response.dump(), data->sessionId);
         Logger::info("✅ Message edited and broadcasted");
         
     } catch (const std::exception& e) {
@@ -1687,13 +2047,10 @@ void WebSocketServer::handleDeleteMessageJson(void* wsPtr, const std::string& js
             {"userId", data->userId}
         };
         
-        std::string responseStr = response.dump();
-        
-        // Send to sender first so their UI updates
-        sendJsonMessage(wsPtr, responseStr);
-        
-        // Broadcast to room (excludes sender to avoid duplicate)
-        broadcastToRoom(roomId, responseStr, data->userId);
+        // Send to sender first
+        sendJsonMessage(wsPtr, response.dump());
+        // Broadcast to room (excluding sender)
+        broadcastToRoom(roomId, response.dump(), data->sessionId);
         Logger::info("✅ Message deleted and broadcasted");
         
     } catch (const std::exception& e) {
@@ -1770,14 +2127,36 @@ void WebSocketServer::handleJoinRoomJson(void* wsPtr, const std::string& jsonStr
         
         Logger::info("🚪 User joining room: " + data->username + " → " + roomId);
         
-        // TODO: Save to room_members table
-        // TODO: Load room history
+        // Save to room_members table
+        bool added = dbClient_->addRoomMember(roomId, data->userId);
+        if (!added) {
+            Logger::warning("User already member or failed to add to room");
+        }
+        
+        // Load room history
+        auto historyMessages = dbClient_->getMessagesByRoom(roomId, 50);
+        json history = json::array();
+        for (const auto& m : historyMessages) {
+            history.push_back({
+                {"messageId", m.messageId},
+                {"roomId", m.roomId},
+                {"userId", m.senderId},
+                {"username", m.senderName},
+                {"content", m.content},
+                {"timestamp", m.timestamp * 1000}
+            });
+        }
+        
+        // Get room members
+        auto members = dbClient_->getRoomMembers(roomId);
         
         json response = {
             {"type", "room_joined"},
             {"roomId", roomId},
             {"userId", data->userId},
-            {"username", data->username}
+            {"username", data->username},
+            {"history", history},
+            {"memberCount", members.size()}
         };
         
         // Send to user who joined
@@ -1792,7 +2171,7 @@ void WebSocketServer::handleJoinRoomJson(void* wsPtr, const std::string& jsonStr
         };
         broadcastToRoom(roomId, broadcast.dump(), data->userId);
         
-        Logger::info("✅ User joined room: " + roomId);
+        Logger::info("✅ User joined room: " + roomId + " (loaded " + std::to_string(historyMessages.size()) + " messages)");
         
     } catch (const std::exception& e) {
         Logger::error("Join room error: " + std::string(e.what()));
@@ -1815,11 +2194,16 @@ void WebSocketServer::handleLeaveRoomJson(void* wsPtr, const std::string& jsonSt
         
         Logger::info("🚪 User leaving room: " + data->username + " ← " + roomId);
         
-        // TODO: Remove from room_members table
+        // Remove from room_members table
+        bool removed = dbClient_->removeRoomMember(roomId, data->userId);
+        if (!removed) {
+            Logger::warning("User was not member of room or failed to remove");
+        }
         
         json response = {
             {"type", "room_left"},
-            {"roomId", roomId}
+            {"roomId", roomId},
+            {"success", removed}
         };
         sendJsonMessage(wsPtr, response.dump());
         
@@ -1843,11 +2227,11 @@ void WebSocketServer::handleLeaveRoomJson(void* wsPtr, const std::string& jsonSt
 void WebSocketServer::handleGetRoomsJson(void* wsPtr) {
     try {
         auto* ws = (uWS::WebSocket<false, true, PerSocketData>*)wsPtr;
-        
-        // TODO: Query database for rooms
-        // For now, return global room + any created rooms
+        PerSocketData* data = ws->getUserData();
         
         json rooms = json::array();
+        
+        // Always include global room
         rooms.push_back({
             {"roomId", "global"},
             {"roomName", "Global Chat"},
@@ -1855,13 +2239,41 @@ void WebSocketServer::handleGetRoomsJson(void* wsPtr) {
             {"unread", 0}
         });
         
+        // Query user's rooms from database
+        try {
+            auto session = dbClient_->getSession();
+            if (session) {
+                auto result = session->sql(
+                    "SELECT r.room_id, r.room_name, r.room_type, rm.role "
+                    "FROM rooms r "
+                    "JOIN room_members rm ON r.room_id = rm.room_id "
+                    "WHERE rm.user_id = ? ORDER BY r.created_at DESC"
+                ).bind(data->userId).execute();
+                
+                mysqlx::Row row;
+                while ((row = result.fetchOne())) {
+                    rooms.push_back({
+                        {"roomId", row[0].get<std::string>()},
+                        {"roomName", row[1].get<std::string>()},
+                        {"roomType", row[2].get<std::string>()},
+                        {"role", row[3].get<std::string>()},
+                        {"unread", 0}
+                    });
+                }
+            }
+        } catch (const std::exception& e) {
+            Logger::warning("Failed to query user rooms: " + std::string(e.what()));
+            // Continue with just global room
+        }
+        
         json response = {
             {"type", "room_list"},
-            {"rooms", rooms}
+            {"rooms", rooms},
+            {"count", rooms.size()}
         };
         
         sendJsonMessage(wsPtr, response.dump());
-        Logger::info("📋 Sent room list");
+        Logger::info("📋 Sent room list: " + std::to_string(rooms.size()) + " rooms");
         
     } catch (const std::exception& e) {
         Logger::error("Get rooms error: " + std::string(e.what()));
@@ -1928,6 +2340,7 @@ void WebSocketServer::handleMarkReadJson(void* wsPtr, const std::string& jsonStr
         
         json msg = json::parse(jsonStr);
         std::string messageId = msg.value("messageId", "");
+        std::string roomId = msg.value("roomId", "global");
         
         if (messageId.empty()) {
             sendErrorJson(wsPtr, "Message ID required");
@@ -1936,18 +2349,34 @@ void WebSocketServer::handleMarkReadJson(void* wsPtr, const std::string& jsonStr
         
         Logger::info("✓✓ Mark read: " + messageId + " by " + data->username);
         
-        // TODO: Update read status in database
-        // Broadcast read receipt to message sender
+        // Update read status in database
+        try {
+            auto session = dbClient_->getSession();
+            if (session) {
+                // Create/update message_reads table entry
+                session->sql(
+                    "INSERT INTO message_reads (message_id, user_id, read_at) "
+                    "VALUES (?, ?, NOW()) "
+                    "ON DUPLICATE KEY UPDATE read_at = NOW()"
+                ).bind(messageId, data->userId).execute();
+                Logger::debug("Read status saved to database");
+            }
+        } catch (const std::exception& e) {
+            Logger::warning("Failed to save read status: " + std::string(e.what()));
+            // Continue anyway - still broadcast the read receipt
+        }
         
         json response = {
             {"type", "message_read"},
             {"messageId", messageId},
+            {"roomId", roomId},
             {"readBy", data->userId},
-            {"username", data->username}
+            {"username", data->username},
+            {"timestamp", std::time(nullptr) * 1000}
         };
         
         // Broadcast to room (sender will update their UI)
-        broadcastToRoom("global", response.dump());
+        broadcastToRoom(roomId, response.dump());
         Logger::info("✅ Read receipt sent");
         
     } catch (const std::exception& e) {
@@ -1957,7 +2386,17 @@ void WebSocketServer::handleMarkReadJson(void* wsPtr, const std::string& jsonStr
 }
 
 bool WebSocketServer::sendToSession(const std::string& sessionId, const std::string& message) {
-    Logger::info("Send to session: " + sessionId);
-    // TODO: implement targeted send
+    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    
+    for (const auto& [key, state] : connections_) {
+        if (state.authenticated && state.wsPtr && state.sessionId == sessionId) {
+            auto* ws = (uWS::WebSocket<false, true, PerSocketData>*)state.wsPtr;
+            ws->send(message, uWS::OpCode::TEXT);
+            Logger::debug("📤 Sent to session: " + sessionId);
+            return true;
+        }
+    }
+    
+    Logger::warning("Session not found: " + sessionId);
     return false;
 }

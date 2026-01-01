@@ -1,4 +1,5 @@
 -- Migration: Add polls tables
+-- Date: 2025-12-18
 -- Description: Create tables for poll persistence
 
 -- =============================================================================

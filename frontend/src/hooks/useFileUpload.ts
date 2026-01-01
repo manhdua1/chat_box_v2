@@ -99,7 +99,7 @@ export function useFileUpload(websocket?: WebSocket, roomId?: string) {
                 try {
                     console.log('📤 Uploading file:', file.name, 'Size:', file.size);
                     
-                    const response = await fetch('http://localhost:8081/upload', {
+                    const response = await fetch('http://192.168.1.8:8080/upload', {
                         method: 'POST',
                         headers: {
                             'X-Filename': encodeURIComponent(file.name)

@@ -1,5 +1,7 @@
 # Deployment Guide
 
+**Last Updated:** January 1, 2026
+
 Complete guide for deploying ChatBox to production.
 
 ## 🎯 Deployment Options

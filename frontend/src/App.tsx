@@ -162,8 +162,8 @@ function App() {
                 rooms={rooms}
                 onSendMessage={(content) => sendMessage(currentRoom!, content)}
                 onToggleRightPanel={() => setShowRightPanel(!showRightPanel)}
-                onEditMessage={(messageId, newContent) => editMessage(messageId, newContent, currentRoom || undefined)}
-                onDeleteMessage={(messageId) => deleteMessage(messageId, currentRoom || undefined)}
+                onEditMessage={(messageId, newContent) => editMessage(messageId, newContent)}
+                onDeleteMessage={(messageId) => deleteMessage(messageId)}
                 onAddReaction={addReaction}
                 onStartCall={currentRoom?.startsWith('dm_') ? (type) => {
                     // Extract user ID from DM room ID (format: dm_userId)

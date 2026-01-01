@@ -9,6 +9,7 @@
 #include "auth/auth_manager.h"
 #include "handlers/webrtc_handler.h"
 #include "handlers/file_handler.h"
+#include "database/mysql_client.h"
 #include "../protocol_chatbox1.h"
 
 // Forward declaration
@@ -91,6 +92,7 @@ private:
     std::shared_ptr<GeminiClient> geminiClient_;
     std::shared_ptr<WebRTCHandler> webrtcHandler_;
     std::shared_ptr<FileHandler> fileHandler_;
+    std::shared_ptr<MySQLClient> dbClient_;  // Database client shortcut
     
     // WebSocket connections
     // Store connections by void* since we use lambdas

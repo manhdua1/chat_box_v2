@@ -367,7 +367,7 @@ void FileHandler::handleUploadFinalize(void* wsPtr,
         Logger::info("✅ File assembled successfully: " + finalPath);
 
         // Generate file URL
-        std::string fileUrl = "http://localhost:8081/uploads/" + finalFileName;
+        std::string fileUrl = "http://localhost:8080/uploads/" + finalFileName;
 
         // Detect if voice message
         bool isVoiceMessage = session.mimeType.find("audio/") == 0;

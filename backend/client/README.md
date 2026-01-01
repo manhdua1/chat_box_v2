@@ -1,5 +1,7 @@
 # ChatBox Backend - Client
 
+**Last Updated:** January 1, 2026
+
 C++ client library cho ChatBox application.
 
 ## 📁 Structure

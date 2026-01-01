@@ -1,27 +1,30 @@
 # Quick Start - Deploy ChatBox1 (Windows)
 
-## Bước 1: Configure AWS CLI
+**Last Updated:** January 1, 2026
+
+## Bước 1: Configure Environment
 
 ```powershell
-aws configure
+# Copy file cấu hình mẫu
+cp config/.env.example config/.env
 
-# Nhập:
-AWS Access Key ID: YOUR_AWS_ACCESS_KEY_ID
-AWS Secret Access Key: YOUR_AWS_SECRET_ACCESS_KEY
-Default region name: ap-southeast-1
-Default output format: json
+# Chỉnh sửa config/.env với các thông tin của bạn:
+# - MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD
+# - JWT_SECRET
+# - GEMINI_API_KEY (nếu dùng AI)
 ```
 
-## Bước 2: Tạo username-index cho Users table
+## Bước 2: Setup Database
 
 ```powershell
 cd scripts
-.\setup_aws.ps1
+.\setup_mysql.ps1
 ```
 
-**Hoặc chạy trực tiếp:**
+**Hoặc chạy migrations thủ công:**
 ```powershell
-aws dynamodb update-table --table-name Users --region ap-southeast-1 --attribute-definitions AttributeName=username,AttributeType=S --global-secondary-index-updates "[{`"Create`":{`"IndexName`":`"username-index`",`"KeySchema`":[{`"AttributeName`":`"username`",`"KeyType`":`"HASH`"}],`"Projection`":{`"ProjectionType`":`"ALL`"},`"ProvisionedThroughput`":{`"ReadCapacityUnits`":5,`"WriteCapacityUnits`":5}}}]"
+# Chạy MySQL client và execute các file trong backend/server/migrations/
+mysql -u root -p chatbox_db < backend/server/migrations/001_add_message_metadata.sql
 ```
 
 ## Bước 3: Verify

@@ -1,6 +1,6 @@
 # ChatBox Web - Project Status & Fixes
 
-**Last Updated**: December 31, 2025
+**Last Updated**: January 1, 2026
 
 ---
 
@@ -32,7 +32,7 @@
 
 ---
 
-## 🔧 Recent Fixes (December 31, 2025)
+## 🔧 Recent Fixes (January 1, 2026)
 
 ### Fix 1: Edit/Delete Messages Not Working
 **Problem**: UI wouldn't update after clicking Save/Delete
@@ -57,6 +57,15 @@
 **Problem**: Duplicate entry errors in database
 
 **Solution**: Changed `INSERT` to `INSERT IGNORE` to skip duplicates
+
+### Fix 4: Polls, Watch Together, Game Features
+**Problem**: Một số tính năng mới chưa đồng bộ giao diện và backend
+
+**Solution**: Đã bổ sung API và cập nhật frontend cho:
+- Polls & Voting (bình chọn)
+- Watch Together (xem video nhóm)
+- Game (Tic-Tac-Toe)
+- Sửa lỗi đồng bộ trạng thái phòng khi có nhiều người tham gia
 
 ---
 

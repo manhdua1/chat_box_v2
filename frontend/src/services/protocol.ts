@@ -5,8 +5,21 @@
 // Port: 8080
 // ============================================================================
 
+// Auto-detect WebSocket URL based on current page URL
+const getWebSocketUrl = (): string => {
+    const { protocol, hostname } = window.location;
+    
+    if (hostname.includes('devtunnels.ms')) {
+        const wsHost = hostname.replace(/-\d+\./, '-8080.');
+        return `wss://${wsHost}`;
+    }
+    
+    const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProtocol}//${hostname}:8080`;
+};
+
 // Constants & Limits
-export const WS_URL = 'ws://localhost:8080';
+export const WS_URL = getWebSocketUrl();
 export const PROTOCOL_VERSION = 1;
 export const DEFAULT_PORT = 8080;
 export const MAX_MESSAGE_LEN = 4096;

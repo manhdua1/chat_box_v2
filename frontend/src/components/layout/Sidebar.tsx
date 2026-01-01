@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import UserSearchModal from '../chat/UserSearchModal';
 import { useTheme } from '../providers/ThemeProvider';
+import { BlockedUsersModal } from '../users/BlockedUsersModal';
+import { RoomManager } from '../room/RoomManager';
 
 type PresenceStatus = 'online' | 'away' | 'dnd' | 'invisible';
 
@@ -77,6 +79,8 @@ export default function Sidebar({
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [isAIChatOpen, setIsAIChatOpen] = useState(false);
     const [isBotManagerOpen, setIsBotManagerOpen] = useState(false);
+    const [isBlockedUsersOpen, setIsBlockedUsersOpen] = useState(false);
+    const [isRoomManagerOpen, setIsRoomManagerOpen] = useState(false);
     const [aiInput, setAiInput] = useState('');
     const statusDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -251,7 +255,7 @@ export default function Sidebar({
                     </div>
                 </div>
 
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
                     <button
                         onClick={() => setIsSearchOpen(true)}
                         className="w-9 h-9 flex items-center justify-center bg-violet-500/10 border-none rounded-lg text-violet-400 cursor-pointer hover:bg-violet-500/20 hover:text-violet-300 transition-colors"
@@ -327,6 +331,7 @@ export default function Sidebar({
                     <button
                         onClick={onLogout}
                         className="w-9 h-9 flex items-center justify-center bg-red-500/10 border-none rounded-lg text-red-400 cursor-pointer hover:bg-red-500/20 hover:text-red-300 transition-colors"
+                        title="Logout"
                     >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -717,6 +722,38 @@ export default function Sidebar({
                             </div>
                         </div>
 
+                        {/* Privacy Section */}
+                        <div className="border-t border-white/10 pt-4 mb-6">
+                            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Privacy & Management</p>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setIsSettingsOpen(false);
+                                        setIsBlockedUsersOpen(true);
+                                    }}
+                                    className="flex-1 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                                    </svg>
+                                    Blocked Users
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsSettingsOpen(false);
+                                        setIsRoomManagerOpen(true);
+                                    }}
+                                    className="flex-1 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                    </svg>
+                                    Manage Rooms
+                                </button>
+                            </div>
+                        </div>
+
                         {/* Danger Zone */}
                         <div className="border-t border-white/10 pt-4 mb-6">
                             <p className="text-xs font-medium text-red-400 uppercase tracking-wider mb-3">Danger Zone</p>
@@ -1025,6 +1062,19 @@ export default function Sidebar({
                     </div>
                 </div>
             )}
+
+            {/* Blocked Users Modal */}
+            <BlockedUsersModal
+                isOpen={isBlockedUsersOpen}
+                onClose={() => setIsBlockedUsersOpen(false)}
+            />
+
+            {/* Room Manager Modal */}
+            <RoomManager
+                isOpen={isRoomManagerOpen}
+                onClose={() => setIsRoomManagerOpen(false)}
+                onRoomSelect={onRoomSelect}
+            />
         </aside>
     );
 }

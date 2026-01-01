@@ -1,5 +1,5 @@
 // WebSocket Configuration
-export const WS_URL = 'ws://localhost:8081';
+export const WS_URL = 'ws://192.168.1.8:8080';
 export const WS_RECONNECT_DELAY = 3000;
 export const WS_MAX_RECONNECT_ATTEMPTS = 5;
 

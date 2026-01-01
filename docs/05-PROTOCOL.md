@@ -311,4 +311,6 @@ The WebSocket server uses **JSON messages** for easy debugging. Examples:
 
 ---
 
-**Port:** `8080` | **Protocol Version:** 1 | **Last Updated:** December 2024
+**Port:** `8080` | **Protocol Version:** 1 | **Last Updated:** January 2026
+
+> **Note:** Đã bổ sung message types cho Polls, Watch Together, Game và các trạng thái phòng nâng cao.

@@ -166,9 +166,60 @@ bool FileStorage::checkUserQuota(const std::string& userId, size_t fileSize) {
 }
 
 void FileStorage::cleanupOldFiles(int daysOld) {
-    // TODO: Implement cleanup logic
-    // Query database for files older than daysOld
-    // Delete from filesystem and database
+    try {
+        // Get files older than daysOld
+        auto session = dbClient_.getSession();
+        if (!session) {
+            Logger::warning("No database session for file cleanup");
+            return;
+        }
+        
+        auto now = std::chrono::system_clock::now();
+        auto cutoffTime = now - std::chrono::hours(24 * daysOld);
+        uint64_t cutoffTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
+            cutoffTime.time_since_epoch()
+        ).count();
+        
+        // Query old files
+        auto result = session->sql(
+            "SELECT file_id, file_path FROM files WHERE uploaded_at < ? AND is_temp = 1"
+        ).bind(cutoffTimestamp).execute();
+        
+        int deletedCount = 0;
+        mysqlx::Row row;
+        while ((row = result.fetchOne())) {
+            std::string fileId = row[0].get<std::string>();
+            std::string filePath = row[1].get<std::string>();
+            
+            // Delete from filesystem
+            std::filesystem::path fullPath = uploadDir_ / filePath;
+            if (std::filesystem::exists(fullPath)) {
+                std::filesystem::remove(fullPath);
+            }
+            
+            // Delete from database
+            dbClient_.deleteFile(fileId);
+            deletedCount++;
+        }
+        
+        if (deletedCount > 0) {
+            Logger::info("🧹 Cleaned up " + std::to_string(deletedCount) + " old temp files");
+        }
+        
+        // Also cleanup empty directories
+        try {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(uploadDir_)) {
+                if (entry.is_directory() && std::filesystem::is_empty(entry.path())) {
+                    std::filesystem::remove(entry.path());
+                }
+            }
+        } catch (const std::exception& e) {
+            Logger::warning("Directory cleanup: " + std::string(e.what()));
+        }
+        
+    } catch (const std::exception& e) {
+        Logger::error("File cleanup error: " + std::string(e.what()));
+    }
 }
 
 std::string FileStorage::generateFileId() {

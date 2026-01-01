@@ -1,5 +1,7 @@
 # 🔍 Database Schema Review - Complete DynamoDB Design
 
+**Last Updated:** January 1, 2026
+
 ## ✅ CURRENT SCHEMA (4 Tables)
 
 ### 1. Users

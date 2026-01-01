@@ -67,6 +67,7 @@ int main(int argc, char* argv[]) {
         shared_ptr<GeminiClient> geminiClient = nullptr;
         if (!config.geminiApiKey.empty() && config.geminiApiKey != "your_gemini_api_key_here") {
             Logger::info("Initializing Gemini AI client...");
+            Logger::info("API Key (first 10 chars): " + config.geminiApiKey.substr(0, 10) + "...");
             geminiClient = make_shared<GeminiClient>(config.geminiApiKey);
             Logger::info("✓ Gemini AI client initialized");
         } else {
