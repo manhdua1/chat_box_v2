@@ -2,7 +2,7 @@
 #include "pubsub/pubsub_broker.h"
 #include "utils/logger.h"
 #include "socket_data.h"
-#include <WebSocket.h>
+#include <uwebsockets/WebSocket.h>
 #include <filesystem>
 #include <fstream>
 #include <sstream>

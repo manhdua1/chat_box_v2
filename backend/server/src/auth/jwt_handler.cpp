@@ -1,6 +1,7 @@
 #include "auth/jwt_handler.h"
 #include "utils/logger.h"
 #include <jwt-cpp/jwt.h>
+#include <jwt-cpp/traits/nlohmann-json/traits.h>
 #include <chrono>
 
 // Real JWT implementation using jwt-cpp library
@@ -10,7 +11,7 @@ std::string JWTHandler::create(const std::map<std::string, std::string>& claims,
     try {
         auto now = std::chrono::system_clock::now();
         
-        auto builder = jwt::create()
+        auto builder = jwt::create<jwt::traits::nlohmann_json>()
             .set_issuer("chatbox")
             .set_type("JWT");
         
@@ -26,7 +27,7 @@ std::string JWTHandler::create(const std::map<std::string, std::string>& claims,
                 builder.set_issued_at(iat_time);
             } else {
                 // Custom string claims
-                builder.set_payload_claim(key, jwt::claim(value));
+                builder.set_payload_claim(key, jwt::basic_claim<jwt::traits::nlohmann_json>(value));
             }
         }
         
@@ -41,11 +42,11 @@ std::string JWTHandler::create(const std::map<std::string, std::string>& claims,
 
 bool JWTHandler::verify(const std::string& token, const std::string& secret) {
     try {
-        auto verifier = jwt::verify()
+        auto verifier = jwt::verify<jwt::traits::nlohmann_json>()
             .allow_algorithm(jwt::algorithm::hs256{secret})
             .with_issuer("chatbox");
         
-        auto decoded = jwt::decode(token);
+        auto decoded = jwt::decode<jwt::traits::nlohmann_json>(token);
         verifier.verify(decoded);
         
         // Check expiration
@@ -73,7 +74,7 @@ std::map<std::string, std::string> JWTHandler::decode(const std::string& token,
     }
     
     try {
-        auto decoded = jwt::decode(token);
+        auto decoded = jwt::decode<jwt::traits::nlohmann_json>(token);
         
         // Get standard claims
         if (decoded.has_subject()) {

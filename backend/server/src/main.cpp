@@ -34,9 +34,6 @@ int main(int argc, char* argv[]) {
         Config config = ConfigLoader::load("../../config/.env");
         
         // Initialize MySQL client
-        // OVERRIDE: Port detection showed 33070 (X Protocol)
-        config.mysqlPort = 33070;
-        config.mysqlPassword = "1732005";
         Logger::info("Initializing MySQL database...");
         Logger::info("DB Config: " + config.mysqlHost + ":" + to_string(config.mysqlPort));
         auto mysqlClient = make_shared<MySQLClient>(

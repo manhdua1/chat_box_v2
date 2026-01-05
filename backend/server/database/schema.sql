@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS rooms (
     room_id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    description TEXT DEFAULT '',
+    description TEXT,
     room_type ENUM('public', 'private', 'dm') DEFAULT 'public',
     creator_id VARCHAR(64) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

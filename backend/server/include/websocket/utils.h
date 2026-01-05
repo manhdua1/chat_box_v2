@@ -6,7 +6,7 @@
 #include <vector>
 #include <functional>
 #include <memory>
-#include <uWS/App.h>
+#include <uwebsockets/App.h>
 
 namespace chatbox {
 namespace websocket {

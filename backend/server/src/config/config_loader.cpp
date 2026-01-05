@@ -3,6 +3,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <algorithm>
+#include <cstdlib>  // for getenv
 
 Config ConfigLoader::load(const std::string& envFile) {
     auto env = parseEnvFile(envFile);
@@ -48,35 +49,51 @@ Config ConfigLoader::load(const std::string& envFile) {
 
 std::map<std::string, std::string> ConfigLoader::parseEnvFile(const std::string& filename) {
     std::map<std::string, std::string> env;
-    std::ifstream file(filename);
     
-    if (!file.is_open()) {
-        throw std::runtime_error("Could not open config file: " + filename);
+    // Try to read from file if it exists
+    std::ifstream file(filename);
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            // Skip empty lines and comments
+            if (line.empty() || line[0] == '#') {
+                continue;
+            }
+            
+            // Find '=' separator
+            size_t pos = line.find('=');
+            if (pos == std::string::npos) {
+                continue;
+            }
+            
+            std::string key = line.substr(0, pos);
+            std::string value = line.substr(pos + 1);
+            
+            // Trim whitespace
+            key.erase(0, key.find_first_not_of(" \t\r\n"));
+            key.erase(key.find_last_not_of(" \t\r\n") + 1);
+            value.erase(0, value.find_first_not_of(" \t\r\n"));
+            value.erase(value.find_last_not_of(" \t\r\n") + 1);
+            
+            env[key] = value;
+        }
     }
     
-    std::string line;
-    while (std::getline(file, line)) {
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '#') {
-            continue;
+    // Override with environment variables if they exist
+    const char* envVars[] = {
+        "MYSQL_HOST", "MYSQL_PORT", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_DATABASE",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "S3_BUCKET",
+        "SERVER_IP", "SERVER_PORT", "SERVER_HOST", "WS_PORT",
+        "JWT_SECRET", "JWT_EXPIRY",
+        "GEMINI_API_KEY",
+        "DEBUG", "LOG_LEVEL"
+    };
+    
+    for (const char* varName : envVars) {
+        const char* value = std::getenv(varName);
+        if (value != nullptr && value[0] != '\0') {
+            env[varName] = value;
         }
-        
-        // Find '=' separator
-        size_t pos = line.find('=');
-        if (pos == std::string::npos) {
-            continue;
-        }
-        
-        std::string key = line.substr(0, pos);
-        std::string value = line.substr(pos + 1);
-        
-        // Trim whitespace
-        key.erase(0, key.find_first_not_of(" \t\r\n"));
-        key.erase(key.find_last_not_of(" \t\r\n") + 1);
-        value.erase(0, value.find_first_not_of(" \t\r\n"));
-        value.erase(value.find_last_not_of(" \t\r\n") + 1);
-        
-        env[key] = value;
     }
     
     return env;

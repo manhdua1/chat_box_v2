@@ -1,0 +1,39 @@
+# Node modules
+node_modules/
+npm-debug.log
+
+# Build directories
+build/
+**/build/
+dist/
+*.exe
+*.o
+*.so
+*.a
+CMakeCache.txt
+CMakeFiles/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.local
+
+# Logs
+*.log
+
+# Test files
+test/
+tests/
+__tests__/
+
+# Documentation
+docs/
+README.md
+*.md

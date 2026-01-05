@@ -12,14 +12,12 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 find_package(unofficial-usockets CONFIG REQUIRED)
 find_package(CURL REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(jwt-cpp CONFIG REQUIRED)
 
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/third_party/json/include
-    ${CMAKE_SOURCE_DIR}/third_party/jwt-cpp/include
-    ${CMAKE_SOURCE_DIR}/third_party/uWebSockets/src
-    ${CMAKE_SOURCE_DIR}/third_party/uWebSockets/uSockets/src
     ${OPENSSL_INCLUDE_DIR}
 )
 
@@ -50,6 +48,8 @@ target_link_libraries(chat_server
     ZLIB::ZLIB
     Threads::Threads
     CURL::libcurl
+    nlohmann_json::nlohmann_json
+    jwt-cpp::jwt-cpp
 )
 
 if(WIN32)

@@ -392,7 +392,7 @@ export function useWebSocket() {
                     }));
                     console.log('📜 Mapped messages:', mappedMessages.length, mappedMessages.slice(0, 2));
                     setMessages(prev => {
-                        const newState = {
+                        const newState: Record<string, Message[]> = {
                             ...prev,
                             [data.roomId]: mappedMessages
                         };
@@ -405,7 +405,7 @@ export function useWebSocket() {
                     console.log('📊 Loading polls from room_joined:', data.polls.length, 'for room:', data.roomId);
                     console.log('📊 Polls data:', JSON.stringify(data.polls));
                     setPolls(prev => {
-                        const newPolls = { ...prev };
+                        const newPolls: Record<string, any> = { ...prev };
                         data.polls.forEach((poll: any) => {
                             // Ensure roomId is set correctly
                             newPolls[poll.id] = { ...poll, roomId: data.roomId };
@@ -500,7 +500,7 @@ export function useWebSocket() {
                     const newMessages = { ...prev };
                     Object.keys(newMessages).forEach(roomId => {
                         newMessages[roomId] = newMessages[roomId].map(msg => {
-                            if (msg.type === 'poll' && msg.poll?.id === data.pollId) {
+                            if (msg.type === 'poll' && msg.poll && msg.poll.id === data.pollId) {
                                 const updatedOptions = msg.poll.options.map((opt: any) =>
                                     opt.id === data.optionId
                                         ? { ...opt, votes: opt.votes + 1, voters: [...(opt.voters || []), data.userId] }

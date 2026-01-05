@@ -13,11 +13,7 @@ public:
                 const std::string& user,
                 const std::string& password,
                 const std::string& database,
-                int port = 33070);  // mysqlx port on this instance
-    
-    ~MySQLClient();
-    
-    // Connection management
+                int port = 33060);  // mysqlx port
     bool connect();
     void disconnect();
     bool isConnected() const;

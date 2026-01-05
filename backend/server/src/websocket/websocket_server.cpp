@@ -2,7 +2,7 @@
 #include "utils/logger.h"
 #include "database/types.h"
 #include "ai/gemini_client.h"
-#include <App.h>
+#include <uwebsockets/App.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <filesystem>
@@ -804,16 +804,25 @@ void WebSocketServer::run() {
                             // Call Gemini API asynchronously
                             std::thread([this, ws, message, userId = data->userId]() {
                                 try {
-                                    std::string response = geminiClient_->chat(message);
-                                    Logger::info("✅ AI response received");
-                                    
-                                    json responseJson = {
-                                        {"type", "ai_response"},
-                                        {"response", response}
-                                    };
-                                    
-                                    // Send response back to client
-                                    sendJsonMessage((void*)ws, responseJson.dump());
+                                    auto response = geminiClient_->sendMessage(message);
+                                    if (response.has_value()) {
+                                        Logger::info("✅ AI response received");
+                                        
+                                        json responseJson = {
+                                            {"type", "ai_response"},
+                                            {"response", response.value()}
+                                        };
+                                        
+                                        // Send response back to client
+                                        sendJsonMessage((void*)ws, responseJson.dump());
+                                    } else {
+                                        Logger::error("❌ AI request failed: No response");
+                                        json errorJson = {
+                                            {"type", "ai_error"},
+                                            {"error", "Failed to get AI response"}
+                                        };
+                                        sendJsonMessage((void*)ws, errorJson.dump());
+                                    }
                                 } catch (const std::exception& e) {
                                     Logger::error("❌ AI request failed: " + std::string(e.what()));
                                     json errorJson = {
