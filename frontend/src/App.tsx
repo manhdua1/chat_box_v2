@@ -49,6 +49,7 @@ function App() {
         updateProfile,
         profileUpdate,
         clearProfileUpdate,
+        roomMembers,
         // AI Chat
         aiMessages,
         aiLoading,
@@ -241,6 +242,7 @@ function App() {
                 <RightPanel
                     roomId={currentRoom}
                     users={users}
+                    roomMembers={roomMembers[currentRoom] || []}
                     messages={messages[currentRoom] || []}
                     onClose={() => setShowRightPanel(false)}
                     onLeaveRoom={currentRoom !== 'global' ? () => {

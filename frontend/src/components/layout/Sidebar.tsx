@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import UserSearchModal from '../chat/UserSearchModal';
 import { useTheme } from '../providers/ThemeProvider';
+import { RoomManager } from '../room/RoomManager';
 
 type PresenceStatus = 'online' | 'away' | 'dnd' | 'invisible';
 
@@ -74,6 +75,7 @@ export default function Sidebar({
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
     const [isAIChatOpen, setIsAIChatOpen] = useState(false);
+    const [isRoomManagerOpen, setIsRoomManagerOpen] = useState(false);
     const statusDropdownRef = useRef<HTMLDivElement>(null);
     const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -419,8 +421,9 @@ export default function Sidebar({
                     <span>{activeTab === 'rooms' ? 'Channels' : 'Direct Messages'}</span>
                     {activeTab === 'rooms' && (
                         <button
-                            onClick={() => setIsCreatingRoom(true)}
+                            onClick={() => setIsRoomManagerOpen(true)}
                             className="w-6 h-6 flex items-center justify-center bg-transparent border-none rounded-md text-slate-500 cursor-pointer hover:bg-white/5 hover:text-slate-300 transition-colors"
+                            title="Manage Rooms"
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <line x1="12" y1="5" x2="12" y2="19" />
@@ -1125,6 +1128,16 @@ export default function Sidebar({
                     </div>
                 </div>
             )}
+
+            {/* Room Manager Modal */}
+            <RoomManager
+                isOpen={isRoomManagerOpen}
+                onClose={() => setIsRoomManagerOpen(false)}
+                onRoomSelect={(roomId) => {
+                    onRoomSelect(roomId);
+                    setIsRoomManagerOpen(false);
+                }}
+            />
         </aside>
     );
 }

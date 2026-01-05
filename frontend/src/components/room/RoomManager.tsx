@@ -10,8 +10,49 @@ interface RoomManagerProps {
 }
 
 export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps) {
-    const { ws, rooms, createRoom, joinRoom, leaveRoom, deleteRoom, currentRoomId, setCurrentRoomId } = useWebSocket()
-    const { onlineUsers } = useChatStore()
+    console.log('🔍 RoomManager render, isOpen:', isOpen)
+    
+    let ws, rooms, createRoom, joinRoom, leaveRoom, deleteRoom, currentRoomId, setCurrentRoomId
+    let onlineUsers
+    
+    try {
+        const wsContext = useWebSocket()
+        ws = wsContext.ws
+        rooms = wsContext.rooms
+        createRoom = wsContext.createRoom
+        joinRoom = wsContext.joinRoom
+        leaveRoom = wsContext.leaveRoom
+        deleteRoom = wsContext.deleteRoom
+        currentRoomId = wsContext.currentRoomId
+        setCurrentRoomId = wsContext.setCurrentRoomId
+        
+        const chatStore = useChatStore()
+        onlineUsers = chatStore.onlineUsers
+    } catch (error) {
+        console.error('❌ Error in RoomManager hooks:', error)
+        // Return early if hooks fail
+        if (!isOpen) return null
+        return (
+            <div 
+                className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+                onClick={onClose}
+            >
+                <div 
+                    className="bg-red-900 rounded-xl border border-red-700 shadow-xl w-full max-w-lg m-4 p-6"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <h3 className="text-white text-xl font-bold mb-4">Error Loading Room Manager</h3>
+                    <p className="text-red-200">{String(error)}</p>
+                    <button 
+                        onClick={onClose}
+                        className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        )
+    }
     
     const [activeTab, setActiveTab] = useState<'my-rooms' | 'create'>('my-rooms')
     const [loading, setLoading] = useState(false)
@@ -27,16 +68,20 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
     
     // Helper to get display name for DM rooms
     const getRoomDisplayName = (room: { id: string; name: string }) => {
+        if (!room || !room.id) return 'Unknown Room'
         if (room.id.startsWith('dm_')) {
             const targetUserId = room.id.replace('dm_', '')
-            const targetUser = onlineUsers.find(u => u.userId === targetUserId)
+            const targetUser = onlineUsers?.find(u => u.userId === targetUserId)
             return targetUser?.username || `User ${targetUserId.slice(0, 8)}`
         }
-        return room.name
+        return room.name || 'Unnamed Room'
     }
     
     // Check if room is DM
-    const isDmRoom = (roomId: string) => roomId.startsWith('dm_')
+    const isDmRoom = (roomId: string) => {
+        if (!roomId) return false
+        return roomId.startsWith('dm_')
+    }
 
     useEffect(() => {
         if (isOpen && ws) {
@@ -133,8 +178,14 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
     if (!isOpen) return null
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-xl w-full max-w-lg m-4 max-h-[80vh] flex flex-col">
+        <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+            onClick={onClose}
+        >
+            <div 
+                className="bg-slate-800 rounded-xl border border-slate-700 shadow-xl w-full max-w-lg m-4 max-h-[80vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-slate-700 flex-shrink-0">
                     <div className="flex items-center gap-2">
@@ -189,7 +240,7 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
                                     <p className="text-sm">Create or join a room to get started</p>
                                 </div>
                             ) : (
-                                rooms.map((room) => (
+                                rooms.filter(room => room && room.id).map((room) => (
                                     <div
                                         key={room.id}
                                         className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
@@ -214,7 +265,7 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
                                             <div>
                                                 <p className="font-medium text-white">{getRoomDisplayName(room)}</p>
                                                 <p className="text-xs text-slate-500">
-                                                    {room.id === 'global' ? 'Public' : isDmRoom(room.id) ? 'Direct Message' : 'Room ID: ' + room.id.slice(0, 8)}
+                                                    {room.id === 'global' ? 'Public' : isDmRoom(room.id) ? 'Direct Message' : 'Room ID: ' + (room.id || '').slice(0, 8)}
                                                 </p>
                                             </div>
                                         </button>

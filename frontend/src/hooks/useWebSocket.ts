@@ -127,6 +127,7 @@ export function useWebSocket() {
     const [watchSession, setWatchSession] = useState<{ active: boolean; videoUrl?: string; viewerCount?: number }>({ active: false });
     const [myPresence, setMyPresence] = useState<'online' | 'away' | 'dnd' | 'invisible'>('online');
     const [profileUpdate, setProfileUpdate] = useState<{ userId: string; displayName?: string; statusMessage?: string; avatar?: string } | null>(null);
+    const [roomMembers, setRoomMembers] = useState<Record<string, any[]>>({});  // roomId -> members array
 
     // AI Chat state
     const [aiMessages, setAiMessages] = useState<AIMessage[]>([]);
@@ -415,6 +416,14 @@ export function useWebSocket() {
                         console.log('📜 New messages state:', Object.keys(newState), newState[data.roomId]?.length);
                         return newState;
                     });
+                }
+                // Load room members
+                if (data.members && Array.isArray(data.members)) {
+                    console.log('👥 Loading room members:', data.members.length, 'for room:', data.roomId);
+                    setRoomMembers(prev => ({
+                        ...prev,
+                        [data.roomId]: data.members
+                    }));
                 }
                 // Load polls from room_joined response
                 if (data.polls && Array.isArray(data.polls)) {
@@ -1104,6 +1113,7 @@ export function useWebSocket() {
         addReaction,
         // New features
         typingUsers,
+        roomMembers,
         // Message Actions
         pinMessage,
         unpinMessage,

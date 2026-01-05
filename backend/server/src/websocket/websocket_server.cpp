@@ -2418,6 +2418,20 @@ void WebSocketServer::handleJoinRoomJson(void* wsPtr, const std::string& jsonStr
         // Get room members
         auto members = dbClient_->getRoomMembers(roomId);
         
+        // Build members array with user info
+        json membersJson = json::array();
+        for (const auto& memberId : members) {
+            auto userOpt = dbClient_->getUserById(memberId);
+            if (userOpt) {
+                json memberObj = {
+                    {"userId", userOpt->userId},
+                    {"username", userOpt->username},
+                    {"avatar", userOpt->avatarUrl}
+                };
+                membersJson.push_back(memberObj);
+            }
+        }
+        
         // Load active polls for this room (try both roomId and queryRoomId for DM)
         auto roomPolls = dbClient_->getRoomPolls(roomId, false);
         if (roomPolls.empty() && roomId != queryRoomId) {
@@ -2453,6 +2467,7 @@ void WebSocketServer::handleJoinRoomJson(void* wsPtr, const std::string& jsonStr
             {"username", data->username},
             {"history", history},
             {"memberCount", members.size()},
+            {"members", membersJson},
             {"polls", pollsJson}
         };
         

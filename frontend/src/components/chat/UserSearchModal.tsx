@@ -58,8 +58,8 @@ export default function UserSearchModal({
     );
 
     return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/50 backdrop-blur-sm">
-            <div className="w-full max-w-lg bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+            <div className="w-full max-w-lg bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
                 {/* Search Header */}
                 <div className="p-4 border-b border-white/10">
                     <div className="relative">

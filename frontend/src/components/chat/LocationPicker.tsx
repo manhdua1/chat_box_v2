@@ -119,8 +119,8 @@ export function LocationPicker({ isOpen, onClose, onSelectLocation }: LocationPi
     if (!isOpen) return null
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-xl w-full max-w-md m-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-xl w-full max-w-md m-4" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-slate-700">
                     <div className="flex items-center gap-2">

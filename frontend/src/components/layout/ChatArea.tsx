@@ -352,8 +352,12 @@ export default function ChatArea({
                     // Get polls for current room from polls state only
                     const roomPolls = Object.values(polls).filter(poll => poll.roomId === currentRoom);
                     
-                    // Get active games
-                    const games = Object.values(activeGames);
+                    // Get active games - only show games where current user is a player
+                    const games = Object.values(activeGames).filter(game => {
+                        if (!currentUser) return false;
+                        // Show game if current user is either X or O player
+                        return game.players.X === currentUser.id || game.players.O === currentUser.id;
+                    });
                     
                     // Convert polls to items
                     const pollItems = roomPolls.map(poll => ({

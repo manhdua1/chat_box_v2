@@ -20,6 +20,7 @@ interface Message {
 interface RightPanelProps {
     roomId: string;
     users: any[];
+    roomMembers?: any[];  // Actual room members from backend
     messages?: Message[];
     onClose: () => void;
     onLeaveRoom?: () => void;
@@ -31,6 +32,7 @@ interface RightPanelProps {
 export default function RightPanel({
     roomId,
     users,
+    roomMembers: roomMembersFromBackend = [],
     messages = [],
     onClose,
     onLeaveRoom,
@@ -88,11 +90,19 @@ export default function RightPanel({
         setTimeout(() => setCopySuccess(false), 2000);
     };
 
-    // Filter online users for this room (show all online users for now since backend doesn't provide room-specific members)
-    const roomMembers = users.filter(user => user.online).map(user => ({
-        ...user,
-        role: user.role || 'member'
-    }));
+    // Use room members from backend if available, otherwise fall back to all online users
+    const roomMembers = roomMembersFromBackend.length > 0 
+        ? roomMembersFromBackend.map((member: any) => ({
+            id: member.userId,
+            username: member.username,
+            avatar: member.avatar,
+            online: true,  // Members are online by definition
+            role: member.role || 'member'
+        }))
+        : users.filter(user => user.online).map(user => ({
+            ...user,
+            role: user.role || 'member'
+        }));
 
     // Get pinned messages
     const pinnedMessages = useMemo(() => {
@@ -206,38 +216,64 @@ export default function RightPanel({
 
             {/* Invite Modal */}
             {showInviteModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="w-full max-w-sm p-6 bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-xl">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowInviteModal(false)}>
+                    <div className="w-full max-w-md p-6 bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <h3 className="text-xl font-semibold text-white mb-2">Invite Members</h3>
-                        <p className="text-slate-400 text-sm mb-6">Share this Room ID with your friends.</p>
+                        <p className="text-slate-400 text-sm mb-6">Share this Room ID to invite others to join.</p>
 
-                        <div className="flex gap-2 items-center bg-black/20 p-2 rounded-xl mb-6 border border-white/10">
-                            <code className="bg-transparent text-violet-300 font-mono text-sm px-2 flex-1 truncate">
-                                {roomId}
-                            </code>
-                            <button
-                                onClick={handleCopyId}
-                                className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"
-                            >
-                                {copySuccess ? (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500">
-                                        <polyline points="20 6 9 17 4 12" />
-                                    </svg>
-                                ) : (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                    </svg>
-                                )}
-                            </button>
+                        {/* Room ID Display */}
+                        <div className="mb-6">
+                            <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                                Room ID
+                            </label>
+                            <div className="flex gap-2 items-center bg-black/30 p-3 rounded-xl border border-white/10">
+                                <code className="bg-transparent text-violet-400 font-mono text-sm flex-1 truncate select-all">
+                                    {roomId}
+                                </code>
+                                <button
+                                    onClick={handleCopyId}
+                                    className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors flex-shrink-0"
+                                    title={copySuccess ? "Copied!" : "Copy Room ID"}
+                                >
+                                    {copySuccess ? (
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500">
+                                            <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                    ) : (
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                        </svg>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Instructions */}
+                        <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4 mb-6">
+                            <div className="flex gap-2 items-start mb-2">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400 mt-0.5 flex-shrink-0">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="12" y1="16" x2="12" y2="12" />
+                                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                                </svg>
+                                <div>
+                                    <p className="text-violet-300 text-sm font-medium mb-1">How to join:</p>
+                                    <ol className="text-slate-400 text-xs space-y-1 list-decimal list-inside">
+                                        <li>Click "Room Manager" in sidebar</li>
+                                        <li>Go to "Create / Join" tab</li>
+                                        <li>Enter this Room ID and click "Join Room"</li>
+                                    </ol>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="flex justify-end">
                             <button
                                 onClick={() => setShowInviteModal(false)}
-                                className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl text-sm font-medium transition-colors"
+                                className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-medium transition-colors"
                             >
-                                Close
+                                Got it!
                             </button>
                         </div>
                     </div>
@@ -246,8 +282,8 @@ export default function RightPanel({
 
             {/* Settings Modal */}
             {showSettingsModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="w-full max-w-sm p-6 bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-xl">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowSettingsModal(false)}>
+                    <div className="w-full max-w-sm p-6 bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <h3 className="text-xl font-semibold text-white mb-4">Room Settings</h3>
 
                         <div className="space-y-4 mb-6">

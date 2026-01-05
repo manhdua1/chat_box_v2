@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modal Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900">
+    <div class="p-8">
+        <button 
+            onclick="document.getElementById('testModal').classList.remove('hidden')"
+            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+        >
+            Open Test Modal
+        </button>
+    </div>
+
+    <!-- Test Modal -->
+    <div 
+        id="testModal"
+        class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+        onclick="this.classList.add('hidden')"
+    >
+        <div 
+            class="bg-slate-800 rounded-xl border border-slate-700 shadow-xl w-full max-w-lg m-4 p-6"
+            onclick="event.stopPropagation()"
+        >
+            <h2 class="text-white text-xl font-bold mb-4">Test Modal</h2>
+            <p class="text-slate-300 mb-4">If you can see this, the modal backdrop is working!</p>
+            <button 
+                onclick="document.getElementById('testModal').classList.add('hidden')"
+                class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+            >
+                Close
+            </button>
+        </div>
+    </div>
+</body>
+</html>
