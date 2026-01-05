@@ -14,7 +14,7 @@ interface CallState {
     status: 'idle' | 'calling' | 'ringing' | 'connected' | 'ended'
 
     // Actions
-    startCall: (targetId: string, type: 'audio' | 'video') => void
+    startCall: (targetId: string, targetName: string, type: 'audio' | 'video') => void
     receiveCall: (callId: string, callerId: string, callerName?: string, type?: 'audio' | 'video') => void
     callAccepted: (callId: string) => void
     acceptCall: () => void
@@ -40,9 +40,10 @@ export const useCallStore = create<CallState>((set, get) => ({
     localStream: null,
     status: 'idle',
 
-    startCall: (targetId, type = 'video') => set({
+    startCall: (targetId, targetName, type = 'video') => set({
         isCalling: true,
         remoteUserId: targetId,
+        remoteUserName: targetName || 'Unknown',
         callType: type,
         isVideoEnabled: type === 'video',
         status: 'calling'

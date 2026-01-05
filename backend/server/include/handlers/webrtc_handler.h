@@ -68,6 +68,9 @@ public:
                                                const std::string& signalData)>;
     
     WebRTCHandler(std::shared_ptr<PubSubBroker> broker);
+    
+    // Set callback for sending messages to users (called by WebSocketServer)
+    void setSendToUserCallback(SignalCallback callback) { sendToUserCallback_ = callback; }
     ~WebRTCHandler();
     
     // ========== Call Management ==========
@@ -126,6 +129,7 @@ public:
     
 private:
     std::shared_ptr<PubSubBroker> broker_;
+    SignalCallback sendToUserCallback_;  // Direct WebSocket delivery
     std::unordered_map<std::string, CallSession> calls_;     // callId -> session
     std::unordered_map<std::string, std::string> userCalls_; // userId -> callId
     std::mutex mutex_;

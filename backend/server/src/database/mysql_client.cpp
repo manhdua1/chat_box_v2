@@ -5,6 +5,7 @@
 #include <sstream>
 #include <iomanip>
 #include <functional>
+#include <algorithm>
 
 // Real MySQL implementation using UserSession.sql() - cleaner than Table API
 
@@ -661,6 +662,8 @@ std::vector<Message> MySQLClient::getMessagesByRoom(const std::string& roomId, i
             }
             messages.push_back(msg);
         }
+        // Reverse to get oldest first (for chat display - old on top, new on bottom)
+        std::reverse(messages.begin(), messages.end());
     } catch (const std::exception& e) {
         handleException(e, "getMessagesByRoom");
     }

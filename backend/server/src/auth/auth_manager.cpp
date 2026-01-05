@@ -243,3 +243,47 @@ std::string AuthManager::hashPassword(const std::string& password) {
 bool AuthManager::verifyPassword(const std::string& password, const std::string& hash) {
     return hashPassword(password) == hash;
 }
+
+std::string AuthManager::changePassword(const std::string& userId, 
+                                        const std::string& currentPassword, 
+                                        const std::string& newPassword) {
+    try {
+        // Get user from database
+        auto session = db_->getSession();
+        if (!session) {
+            return "Database connection error";
+        }
+        
+        // Find user by ID
+        auto result = session->sql(
+            "SELECT username, password_hash FROM users WHERE user_id = ?"
+        ).bind(userId).execute();
+        
+        auto row = result.fetchOne();
+        if (!row) {
+            return "User not found";
+        }
+        
+        std::string storedHash = row[1].get<std::string>();
+        
+        // Verify current password
+        if (!verifyPassword(currentPassword, storedHash)) {
+            return "Current password is incorrect";
+        }
+        
+        // Hash new password
+        std::string newHash = hashPassword(newPassword);
+        
+        // Update password in database
+        session->sql(
+            "UPDATE users SET password_hash = ? WHERE user_id = ?"
+        ).bind(newHash).bind(userId).execute();
+        
+        Logger::info("✓ Password changed for user: " + userId);
+        return "";  // Success
+        
+    } catch (const std::exception& e) {
+        Logger::error("Change password error: " + std::string(e.what()));
+        return "System error";
+    }
+}

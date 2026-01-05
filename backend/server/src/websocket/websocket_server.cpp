@@ -1,7 +1,7 @@
 #include "websocket/websocket_server.h"
-#include "ai/gemini_client.h"
 #include "utils/logger.h"
 #include "database/types.h"
+#include "ai/gemini_client.h"
 #include <App.h>
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -87,6 +87,11 @@ WebSocketServer::WebSocketServer(int port,
     , webrtcHandler_(std::make_shared<WebRTCHandler>(broker))
     , fileHandler_(std::make_shared<FileHandler>(nullptr, nullptr, broker))
     , dbClient_(authManager ? authManager->getDatabase() : nullptr) {
+    
+    // Set up WebRTC callback to use sendToUser for direct delivery
+    webrtcHandler_->setSendToUserCallback([this](const std::string& userId, const std::string& message) {
+        this->sendToUser(userId, message);
+    });
     
     Logger::info("✓ WebSocket server khởi tạo với Protocol Support trên port " + std::to_string(port));
 }
@@ -369,6 +374,14 @@ void WebSocketServer::run() {
                                 data->userId = sessionInfo->userId;
                                 data->username = sessionInfo->username;
                                 data->sessionId = "ws-session-" + sessionInfo->userId;
+                                
+                                // IMPORTANT: Also update connections_ map for sendToUser to work
+                                {
+                                    std::lock_guard<std::mutex> lock(connectionsMutex_);
+                                    connections_[(void*)ws].authenticated = true;
+                                    connections_[(void*)ws].userId = sessionInfo->userId;
+                                    connections_[(void*)ws].username = sessionInfo->username;
+                                }
                                 
                                 json response = {
                                     {"type", "auth_response"},
@@ -689,39 +702,6 @@ void WebSocketServer::run() {
                             Logger::debug("🧊 ICE Candidate forwarded: " + callId);
                         }
                     }
-                    // ============== AI Bot Modal ==============
-                    else if (type == "ai_request") {
-                        if (data->authenticated && geminiClient_) {
-                            std::string content = msg.value("content", "");
-                            Logger::info("🤖 AI request from " + data->username + ": " + content);
-                            
-                            auto aiResponse = geminiClient_->sendMessage(content);
-                            
-                            json response;
-                            if (aiResponse.has_value()) {
-                                response = {
-                                    {"type", "ai_response"},
-                                    {"content", aiResponse.value()},
-                                    {"timestamp", std::time(nullptr)}
-                                };
-                                Logger::info("✓ AI response sent to " + data->username);
-                            } else {
-                                response = {
-                                    {"type", "ai_error"},
-                                    {"error", "Failed to get AI response"}
-                                };
-                            }
-                            sendJsonMessage((void*)ws, response.dump());
-                        } else if (!geminiClient_) {
-                            json response = {
-                                {"type", "ai_error"},
-                                {"error", "AI service not configured"}
-                            };
-                            sendJsonMessage((void*)ws, response.dump());
-                        } else {
-                            sendErrorJson((void*)ws, "Not authenticated");
-                        }
-                    }
                     // ============== Presence Status ==============
                     else if (type == "presence_update") {
                         if (data->authenticated) {
@@ -787,6 +767,68 @@ void WebSocketServer::run() {
                             sendErrorJson((void*)ws, "Not authenticated");
                         }
                     }
+                    // ============== Change Password ==============
+                    else if (type == "change_password") {
+                        if (data->authenticated) {
+                            std::string currentPassword = msg.value("currentPassword", "");
+                            std::string newPassword = msg.value("newPassword", "");
+                            
+                            Logger::info("🔐 Change password request from " + data->username);
+                            
+                            // Use AuthManager's changePassword method
+                            std::string error = authManager_->changePassword(data->userId, currentPassword, newPassword);
+                            bool success = error.empty();
+                            
+                            if (success) {
+                                Logger::info("✅ Password changed successfully for " + data->username);
+                            } else {
+                                Logger::warning("❌ Password change failed for " + data->username + ": " + error);
+                            }
+                            
+                            json response = {
+                                {"type", "change_password_response"},
+                                {"success", success},
+                                {"message", success ? "Password changed successfully" : error}
+                            };
+                            sendJsonMessage((void*)ws, response.dump());
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
+                    // ============== AI Chat (Gemini) ==============
+                    else if (type == "ai_request") {
+                        if (data->authenticated && geminiClient_) {
+                            std::string message = msg.value("message", "");
+                            Logger::info("🤖 AI request from " + data->username + ": " + message.substr(0, 50) + "...");
+                            
+                            // Call Gemini API asynchronously
+                            std::thread([this, ws, message, userId = data->userId]() {
+                                try {
+                                    std::string response = geminiClient_->chat(message);
+                                    Logger::info("✅ AI response received");
+                                    
+                                    json responseJson = {
+                                        {"type", "ai_response"},
+                                        {"response", response}
+                                    };
+                                    
+                                    // Send response back to client
+                                    sendJsonMessage((void*)ws, responseJson.dump());
+                                } catch (const std::exception& e) {
+                                    Logger::error("❌ AI request failed: " + std::string(e.what()));
+                                    json errorJson = {
+                                        {"type", "ai_error"},
+                                        {"message", e.what()}
+                                    };
+                                    sendJsonMessage((void*)ws, errorJson.dump());
+                                }
+                            }).detach();
+                        } else if (!geminiClient_) {
+                            sendErrorJson((void*)ws, "AI service not available");
+                        } else {
+                            sendErrorJson((void*)ws, "Not authenticated");
+                        }
+                    }
                     // ============== Polls ==============
                     else if (type == "poll_create") {
                         if (data->authenticated) {
@@ -848,11 +890,22 @@ void WebSocketServer::run() {
                                 {"poll", poll}
                             };
                             
-                            // Send directly to creator first
-                            sendJsonMessage((void*)ws, broadcastMsg.dump());
-                            
-                            // Also broadcast to room (in case others are in the room)
-                            broadcastToRoom(roomId, broadcastMsg.dump(), data->sessionId);
+                            // For DM rooms, send to both users
+                            if (roomId.substr(0, 3) == "dm_") {
+                                // Extract target user ID from dm_targetUserId format
+                                std::string targetUserId = roomId.substr(3);
+                                // Send to target user with their perspective roomId
+                                std::string targetRoomId = "dm_" + data->userId;
+                                json targetMsg = broadcastMsg;
+                                targetMsg["roomId"] = targetRoomId;
+                                sendToUser(targetUserId, targetMsg.dump());
+                                // Send to sender
+                                sendJsonMessage((void*)ws, broadcastMsg.dump());
+                                Logger::info("📊 Poll sent to DM: " + roomId + " and " + targetRoomId);
+                            } else {
+                                // Broadcast to ALL users in room (including creator for confirmation)
+                                broadcastToRoom(roomId, broadcastMsg.dump());
+                            }
                             Logger::info("📊 Poll created by " + data->username + ": " + question);
                         }
                     }
@@ -883,12 +936,18 @@ void WebSocketServer::run() {
                                 {"username", data->username}
                             };
                             
-                            // Send directly to the voter first
-                            sendJsonMessage((void*)ws, broadcastMsg.dump());
-                            
-                            // Also broadcast to room so others see the vote update
-                            if (!roomId.empty()) {
-                                broadcastToRoom(roomId, broadcastMsg.dump(), data->sessionId);
+                            // For DM rooms, send to both users
+                            if (!roomId.empty() && roomId.substr(0, 3) == "dm_") {
+                                std::string targetUserId = roomId.substr(3);
+                                std::string targetRoomId = "dm_" + data->userId;
+                                json targetMsg = broadcastMsg;
+                                targetMsg["roomId"] = targetRoomId;
+                                sendToUser(targetUserId, targetMsg.dump());
+                                sendJsonMessage((void*)ws, broadcastMsg.dump());
+                            } else if (!roomId.empty()) {
+                                broadcastToRoom(roomId, broadcastMsg.dump());
+                            } else {
+                                sendJsonMessage((void*)ws, broadcastMsg.dump());
                             }
                             Logger::info("🗳️ Vote cast by " + data->username + " in room " + roomId);
                         }
@@ -1605,12 +1664,32 @@ void WebSocketServer::handleLoginJson(void* wsPtr, const std::string& jsonStr) {
                 }
             }
             
+            // Get user's display name and avatar from database
+            std::string displayName = username;
+            std::string avatar = "";
+            try {
+                auto session = dbClient_->getSession();
+                if (session) {
+                    auto userResult = session->sql(
+                        "SELECT display_name, avatar_url FROM users WHERE user_id = ?"
+                    ).bind(result.userId).execute();
+                    auto row = userResult.fetchOne();
+                    if (row) {
+                        if (!row[0].isNull()) displayName = row[0].get<std::string>();
+                        if (!row[1].isNull()) avatar = row[1].get<std::string>();
+                    }
+                }
+            } catch (const std::exception& e) {
+                Logger::warning("Failed to get user profile: " + std::string(e.what()));
+            }
+
             json response = {
                 {"type", "login_response"},
                 {"success", true},
                 {"token", result.token},
                 {"userId", result.userId},
-                {"username", username},
+                {"username", displayName.empty() ? username : displayName},
+                {"avatar", avatar},
                 {"message", "Login successful"}
             };
             
@@ -1782,7 +1861,7 @@ void WebSocketServer::handleChatMessageJson(void* wsPtr, const std::string& json
             {"userId", data->userId},
             {"username", data->username},
             {"content", content},
-            {"timestamp", std::time(nullptr)}
+            {"timestamp", std::time(nullptr) * 1000}  // Convert to milliseconds for JS
         };
         
         // Add metadata if present (for file attachments)
@@ -1912,13 +1991,26 @@ void WebSocketServer::broadcast(const std::string& message) {
 void WebSocketServer::broadcastToRoom(const std::string& roomId, const std::string& message, const std::string& excludeUserId) {
     std::lock_guard<std::mutex> lock(connectionsMutex_);
     
-    // Get room members from database
+    // Special handling for "global" room - broadcast to ALL authenticated users
+    if (roomId == "global") {
+        int sent = 0;
+        for (const auto& [key, state] : connections_) {
+            if (state.authenticated && state.wsPtr && state.userId != excludeUserId) {
+                auto* ws = (uWS::WebSocket<false, true, PerSocketData>*)state.wsPtr;
+                ws->send(message, uWS::OpCode::TEXT);
+                sent++;
+            }
+        }
+        Logger::info("📢 Broadcast to global room: " + std::to_string(sent) + " users");
+        return;
+    }
+    
+    // For other rooms, send to all room members (not just currently viewing)
     std::vector<std::string> roomMembers;
     try {
         roomMembers = dbClient_->getRoomMembers(roomId);
     } catch (...) {
-        // If can't get members, broadcast to all authenticated users viewing this room
-        Logger::warning("Could not get room members, falling back to currentRoom check");
+        Logger::warning("Could not get room members for: " + roomId);
     }
     
     int sent = 0;
@@ -1930,18 +2022,17 @@ void WebSocketServer::broadcastToRoom(const std::string& roomId, const std::stri
         
         bool shouldSend = false;
         
-        // Check if user is currently viewing this room
-        if (state.currentRoom == roomId) {
-            shouldSend = true;
-        }
-        // Or check if user is a member of this room (from database)
-        else if (!roomMembers.empty()) {
-            for (const auto& memberId : roomMembers) {
-                if (memberId == state.userId) {
-                    shouldSend = true;
-                    break;
-                }
+        // Check if user is a member of this room (from database)
+        for (const auto& memberId : roomMembers) {
+            if (memberId == state.userId) {
+                shouldSend = true;
+                break;
             }
+        }
+        
+        // Also send if user is currently viewing this room
+        if (!shouldSend && state.currentRoom == roomId) {
+            shouldSend = true;
         }
         
         if (shouldSend) {
@@ -1957,7 +2048,11 @@ void WebSocketServer::broadcastToRoom(const std::string& roomId, const std::stri
 void WebSocketServer::sendToUser(const std::string& userId, const std::string& message) {
     std::lock_guard<std::mutex> lock(connectionsMutex_);
     
+    Logger::info("🔍 sendToUser looking for userId: " + userId);
+    Logger::info("🔍 Total connections: " + std::to_string(connections_.size()));
+    
     for (const auto& [key, state] : connections_) {
+        Logger::debug("🔍 Checking connection: userId=" + state.userId + ", authenticated=" + std::to_string(state.authenticated));
         if (state.authenticated && state.wsPtr && state.userId == userId) {
             auto* ws = (uWS::WebSocket<false, true, PerSocketData>*)state.wsPtr;
             ws->send(message, uWS::OpCode::TEXT);
@@ -2292,13 +2387,42 @@ void WebSocketServer::handleJoinRoomJson(void* wsPtr, const std::string& jsonStr
         // Get room members
         auto members = dbClient_->getRoomMembers(roomId);
         
+        // Load active polls for this room (try both roomId and queryRoomId for DM)
+        auto roomPolls = dbClient_->getRoomPolls(roomId, false);
+        if (roomPolls.empty() && roomId != queryRoomId) {
+            roomPolls = dbClient_->getRoomPolls(queryRoomId, false);
+        }
+        json pollsJson = json::array();
+        for (const auto& poll : roomPolls) {
+            json optionsJson = json::array();
+            for (const auto& opt : poll.options) {
+                optionsJson.push_back({
+                    {"id", opt.optionId},
+                    {"text", opt.text},
+                    {"votes", opt.voteCount},
+                    {"voters", opt.voterIds}
+                });
+            }
+            pollsJson.push_back({
+                {"id", poll.pollId},
+                {"question", poll.question},
+                {"options", optionsJson},
+                {"createdBy", poll.createdBy},
+                {"createdAt", poll.createdAt},
+                {"isClosed", poll.isClosed},
+                {"roomId", roomId}
+            });
+        }
+        Logger::info("📊 Loaded " + std::to_string(roomPolls.size()) + " polls for room " + roomId);
+        
         json response = {
             {"type", "room_joined"},
             {"roomId", roomId},
             {"userId", data->userId},
             {"username", data->username},
             {"history", history},
-            {"memberCount", members.size()}
+            {"memberCount", members.size()},
+            {"polls", pollsJson}
         };
         
         // Send to user who joined

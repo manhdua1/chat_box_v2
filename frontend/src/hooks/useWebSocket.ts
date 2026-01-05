@@ -56,12 +56,6 @@ interface User {
     status?: 'online' | 'away' | 'dnd' | 'invisible';
 }
 
-interface AIMessage {
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: number;
-}
-
 interface PollOption {
     id: string;
     text: string;
@@ -94,6 +88,12 @@ interface TypingUser {
     roomId: string;
 }
 
+interface AIMessage {
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+}
+
 export function useWebSocket() {
     const [connected, setConnected] = useState(false);
     const [messages, setMessages] = useState<Record<string, Message[]>>({});
@@ -102,21 +102,28 @@ export function useWebSocket() {
     const [currentRoomId, setCurrentRoomId] = useState<string>('');
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+    const handleMessageRef = useRef<(data: any) => void>(() => {});
 
     // New feature states
     const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
-    const [aiMessages, setAiMessages] = useState<AIMessage[]>([]);
-    const [aiLoading, setAiLoading] = useState(false);
     const [polls, setPolls] = useState<Record<string, Poll>>({});
     const [activeGames, setActiveGames] = useState<Record<string, GameState>>({});
     const [watchSession, setWatchSession] = useState<{ active: boolean; videoUrl?: string; viewerCount?: number }>({ active: false });
     const [myPresence, setMyPresence] = useState<'online' | 'away' | 'dnd' | 'invisible'>('online');
+    const [profileUpdate, setProfileUpdate] = useState<{ userId: string; displayName?: string; statusMessage?: string; avatar?: string } | null>(null);
+
+    // AI Chat state
+    const [aiMessages, setAiMessages] = useState<AIMessage[]>([]);
+    const [aiLoading, setAiLoading] = useState(false);
 
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
         const ws = new WebSocket(WS_URL);
         wsRef.current = ws;
+        
+        // Expose WebSocket globally for components that need direct access
+        (window as any).__chatbox_ws = ws;
 
         ws.onopen = () => {
             console.log('WebSocket connected');
@@ -136,7 +143,7 @@ export function useWebSocket() {
             try {
                 const data = JSON.parse(event.data);
                 console.log('🔔 WebSocket message received:', data.type, data);
-                handleMessage(data);
+                handleMessageRef.current(data);
             } catch (error) {
                 console.error('Failed to parse message:', error);
             }
@@ -163,7 +170,13 @@ export function useWebSocket() {
 
             case 'chat':
                 console.log('📩 Received chat message:', data);
+                console.log('📩 Chat roomId:', data.roomId, 'content:', data.content);
+                // Debug: show alert for DM
+                if (data.roomId?.startsWith('dm_')) {
+                    console.log('🔔 DM RECEIVED!', data.content);
+                }
                 setMessages(prev => {
+                    console.log('📊 Previous messages for room', data.roomId, ':', prev[data.roomId]?.length || 0);
                     const roomMessages = prev[data.roomId] || [];
                     // Check if message already exists (prevent duplicates)
                     const messageExists = roomMessages.some(m => 
@@ -364,7 +377,43 @@ export function useWebSocket() {
                 break;
 
             case 'room_joined':
-                console.log('✅ Joined room:', data.roomId);
+                console.log('✅ Joined room:', data.roomId, 'with history:', data.history?.length || 0, 'polls:', data.polls?.length || 0);
+                console.log('📜 History data:', JSON.stringify(data.history?.slice(0, 2)));
+                // Load history from room_joined response
+                if (data.history && Array.isArray(data.history)) {
+                    const mappedMessages = data.history.map((m: any) => ({
+                        id: m.messageId,
+                        content: m.content,
+                        senderId: m.userId,
+                        senderName: m.username,
+                        timestamp: m.timestamp,
+                        roomId: data.roomId,
+                        metadata: m.metadata
+                    }));
+                    console.log('📜 Mapped messages:', mappedMessages.length, mappedMessages.slice(0, 2));
+                    setMessages(prev => {
+                        const newState = {
+                            ...prev,
+                            [data.roomId]: mappedMessages
+                        };
+                        console.log('📜 New messages state:', Object.keys(newState), newState[data.roomId]?.length);
+                        return newState;
+                    });
+                }
+                // Load polls from room_joined response
+                if (data.polls && Array.isArray(data.polls)) {
+                    console.log('📊 Loading polls from room_joined:', data.polls.length, 'for room:', data.roomId);
+                    console.log('📊 Polls data:', JSON.stringify(data.polls));
+                    setPolls(prev => {
+                        const newPolls = { ...prev };
+                        data.polls.forEach((poll: any) => {
+                            // Ensure roomId is set correctly
+                            newPolls[poll.id] = { ...poll, roomId: data.roomId };
+                        });
+                        console.log('📊 Updated polls state:', Object.keys(newPolls));
+                        return newPolls;
+                    });
+                }
                 break;
 
             // WebRTC Events
@@ -420,40 +469,49 @@ export function useWebSocket() {
                 setTypingUsers(prev => prev.filter(u => u.id !== data.userId));
                 break;
 
-            // AI Bot
-            case 'ai_response':
-                setAiLoading(false);
-                setAiMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: data.content,
-                    timestamp: Date.now()
-                }]);
-                break;
-
-            case 'ai_error':
-                setAiLoading(false);
-                setAiMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: 'Sorry, I encountered an error. Please try again.',
-                    timestamp: Date.now()
-                }]);
-                break;
-
             // Polls
             case 'poll_created':
-                setPolls(prev => ({ ...prev, [data.poll.id]: data.poll }));
+                console.log('📊 Poll created:', data);
+                // Add roomId to poll for filtering
+                const pollWithRoom = { ...data.poll, roomId: data.roomId };
+                setPolls(prev => ({ ...prev, [data.poll.id]: pollWithRoom }));
+                // NOTE: Don't add to messages - polls are displayed from polls state only
                 break;
 
             case 'poll_vote':
+                console.log('🗳️ Poll vote received:', data);
                 setPolls(prev => {
                     const poll = prev[data.pollId];
-                    if (!poll) return prev;
+                    if (!poll) {
+                        console.log('⚠️ Poll not found:', data.pollId);
+                        return prev;
+                    }
                     const updatedOptions = poll.options.map(opt =>
                         opt.id === data.optionId
-                            ? { ...opt, votes: opt.votes + 1, voters: [...opt.voters, data.userId] }
+                            ? { ...opt, votes: opt.votes + 1, voters: [...(opt.voters || []), data.userId] }
                             : opt
                     );
-                    return { ...prev, [data.pollId]: { ...poll, options: updatedOptions } };
+                    const updatedPoll = { ...poll, options: updatedOptions };
+                    console.log('🗳️ Updated poll:', updatedPoll);
+                    return { ...prev, [data.pollId]: updatedPoll };
+                });
+                // Also update poll in messages
+                setMessages(prev => {
+                    const newMessages = { ...prev };
+                    Object.keys(newMessages).forEach(roomId => {
+                        newMessages[roomId] = newMessages[roomId].map(msg => {
+                            if (msg.type === 'poll' && msg.poll?.id === data.pollId) {
+                                const updatedOptions = msg.poll.options.map((opt: any) =>
+                                    opt.id === data.optionId
+                                        ? { ...opt, votes: opt.votes + 1, voters: [...(opt.voters || []), data.userId] }
+                                        : opt
+                                );
+                                return { ...msg, poll: { ...msg.poll, options: updatedOptions } };
+                            }
+                            return msg;
+                        });
+                    });
+                    return newMessages;
                 });
                 break;
 
@@ -510,12 +568,50 @@ export function useWebSocket() {
                         avatar: data.avatar || u.avatar
                     } : u
                 ));
+                // Notify App.tsx to update currentUser if it's the logged-in user
+                setProfileUpdate({
+                    userId: data.userId,
+                    displayName: data.displayName,
+                    statusMessage: data.statusMessage,
+                    avatar: data.avatar
+                });
+                break;
+
+            // Change Password
+            case 'change_password_response':
+                console.log('🔐 Change password response:', data);
+                // Dispatch event for Sidebar to handle
+                window.dispatchEvent(new CustomEvent('password-change-result', { 
+                    detail: { success: data.success, message: data.message }
+                }));
+                break;
+
+            // AI Chat responses
+            case 'ai_response':
+                setAiLoading(false);
+                setAiMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: data.response,
+                    timestamp: Date.now()
+                }]);
+                break;
+
+            case 'ai_error':
+                setAiLoading(false);
+                setAiMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `Error: ${data.message || 'Failed to get AI response'}`,
+                    timestamp: Date.now()
+                }]);
                 break;
 
             default:
                 console.log('Unknown message type:', data.type, data);
         }
     }, []);
+
+    // Keep handleMessageRef updated - MUST run before connect
+    handleMessageRef.current = handleMessage;
 
     useEffect(() => {
         connect();
@@ -550,7 +646,11 @@ export function useWebSocket() {
                         if (data.success) {
                             resolve({
                                 success: true,
-                                user: { id: data.userId, username: data.username },
+                                user: { 
+                                    id: data.userId, 
+                                    username: data.username,
+                                    avatar: data.avatar || ''
+                                },
                                 token: data.token
                             });
                         } else {
@@ -615,10 +715,82 @@ export function useWebSocket() {
     }, []);
 
     const sendMessage = useCallback((roomId: string, content: string, metadata?: any) => {
-        console.log('📤 sendMessage called:', { roomId, content, metadata });
+        // Use the hook's currentRoomId if available, otherwise use passed roomId
+        const effectiveRoomId = currentRoomId || roomId;
+        console.log('📤 sendMessage called:', { passedRoomId: roomId, currentRoomId, effectiveRoomId, content });
+        
+        // Parse slash commands
+        if (content.startsWith('/')) {
+            // Handle /poll command specially
+            if (content.startsWith('/poll')) {
+                console.log('🎯 Poll command detected, roomId:', effectiveRoomId);
+                console.log('🎯 RAW content:', JSON.stringify(content));
+                console.log('🎯 Content chars:', [...content].map(c => c.charCodeAt(0)));
+                
+                // Normalize all types of quotes to regular quotes
+                const normalizedContent = content
+                    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036""„]/g, '"')  // All smart double quotes
+                    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035''‚]/g, "'")  // All smart single quotes
+                    .trim();
+                
+                console.log('🎯 Normalized:', JSON.stringify(normalizedContent));
+                
+                // Try multiple formats:
+                
+                // Format 1: /poll "Question" "Option1" "Option2"
+                const allQuoted = normalizedContent.match(/"([^"]+)"/g);
+                console.log('🎯 Quoted strings found:', allQuoted);
+                
+                if (allQuoted && allQuoted.length >= 3) {
+                    const question = allQuoted[0].replace(/"/g, '');
+                    const options = allQuoted.slice(1).map(o => o.replace(/"/g, ''));
+                    console.log('📊 Parsed poll (format 1):', { question, options, roomId: effectiveRoomId });
+                    send({ type: 'poll_create', roomId: effectiveRoomId, question, options });
+                    return;
+                }
+                
+                // Format 2: /poll Question? | Option1 | Option2
+                const pipeFormat = normalizedContent.match(/^\/poll\s+(.+?)(?:\s*\|\s*(.+))?$/);
+                if (pipeFormat && pipeFormat[2]) {
+                    const parts = normalizedContent.replace(/^\/poll\s+/, '').split(/\s*\|\s*/);
+                    if (parts.length >= 3) {
+                        const question = parts[0].trim();
+                        const options = parts.slice(1).map(o => o.trim());
+                        console.log('📊 Parsed poll (format 2 - pipe):', { question, options, roomId: effectiveRoomId });
+                        send({ type: 'poll_create', roomId: effectiveRoomId, question, options });
+                        return;
+                    }
+                }
+                
+                // Format 3: Simple - take everything after /poll as question, create Yes/No poll
+                const simpleQuestion = normalizedContent.replace(/^\/poll\s+/, '').replace(/"/g, '').trim();
+                if (simpleQuestion && simpleQuestion.length > 0) {
+                    console.log('📊 Creating Yes/No poll for:', simpleQuestion, 'roomId:', effectiveRoomId);
+                    send({ type: 'poll_create', roomId: effectiveRoomId, question: simpleQuestion, options: ['Yes', 'No'] });
+                    return;
+                }
+                
+                console.log('⚠️ Could not parse poll. Formats supported:');
+                console.log('  /poll "Question?" "Option1" "Option2"');
+                console.log('  /poll Question? | Option1 | Option2');
+                console.log('  /poll Question? (creates Yes/No poll)');
+                return;
+            }
+            
+            // Handle /vote command
+            if (content.startsWith('/vote')) {
+                const voteMatch = content.match(/^\/vote\s+(\S+)\s+(\S+)$/);
+                if (voteMatch) {
+                    send({ type: 'poll_vote', pollId: voteMatch[1], optionId: voteMatch[2], roomId: effectiveRoomId });
+                }
+                // Don't send /vote as text message
+                return;
+            }
+        }
+        
         const message: any = {
             type: 'chat',
-            roomId,
+            roomId: effectiveRoomId,
             content
         };
 
@@ -629,7 +801,7 @@ export function useWebSocket() {
         }
 
         send(message);
-    }, [send]);
+    }, [send, currentRoomId]);
 
     const joinRoom = useCallback((roomId: string) => {
         send({
@@ -698,9 +870,9 @@ export function useWebSocket() {
     }, [send, currentRoomId]);
 
     // WebRTC Signaling
-    const startCall = useCallback((targetId: string, type: 'audio' | 'video') => {
-        console.log('📞 Starting call to:', targetId, type);
-        useCallStore.getState().startCall(targetId, type);
+    const startCall = useCallback((targetId: string, targetName: string, type: 'audio' | 'video') => {
+        console.log('📞 Starting call to:', targetId, targetName, type);
+        useCallStore.getState().startCall(targetId, targetName, type);
         send({
             type: 'call_init',
             targetId,
@@ -739,23 +911,13 @@ export function useWebSocket() {
     }, [send]);
 
     const sendSignal = useCallback((targetId: string, type: string, payload: any) => {
+        console.log('📤 sendSignal:', type, 'to:', targetId);
         send({
             type,
-            targetUserId: targetId,
+            targetId,  // Backend expects 'targetId'
             ...payload
         })
     }, [send])
-
-    // AI Bot
-    const sendAIMessage = useCallback((message: string) => {
-        setAiMessages(prev => [...prev, { role: 'user', content: message, timestamp: Date.now() }]);
-        setAiLoading(true);
-        send({ type: 'ai_request', content: message });
-    }, [send]);
-
-    const clearAIMessages = useCallback(() => {
-        setAiMessages([]);
-    }, []);
 
     // Message Actions
     const pinMessage = useCallback((messageId: string, roomId: string) => {
@@ -852,6 +1014,21 @@ export function useWebSocket() {
         send({ type: 'profile_update', ...data });
     }, [send]);
 
+    // AI Chat
+    const sendAIMessage = useCallback((message: string) => {
+        setAiMessages(prev => [...prev, {
+            role: 'user',
+            content: message,
+            timestamp: Date.now()
+        }]);
+        setAiLoading(true);
+        send({ type: 'ai_request', message });
+    }, [send]);
+
+    const clearAIMessages = useCallback(() => {
+        setAiMessages([]);
+    }, []);
+
     // Alias for compatibility
     const isConnected = connected;
 
@@ -874,10 +1051,6 @@ export function useWebSocket() {
         addReaction,
         // New features
         typingUsers,
-        aiMessages,
-        aiLoading,
-        sendAIMessage,
-        clearAIMessages,
         // Message Actions
         pinMessage,
         unpinMessage,
@@ -906,6 +1079,13 @@ export function useWebSocket() {
         myPresence,
         updatePresence,
         updateProfile,
+        profileUpdate,
+        clearProfileUpdate: () => setProfileUpdate(null),
+        // AI Chat
+        aiMessages,
+        aiLoading,
+        sendAIMessage,
+        clearAIMessages,
         login,
         register,
         startCall,

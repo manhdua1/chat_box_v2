@@ -1,10 +1,12 @@
 #include "handlers/webrtc_handler.h"
 #include "pubsub/pubsub_broker.h"
 #include "utils/logger.h"
+#include <nlohmann/json.hpp>
 #include <chrono>
 #include <random>
 #include <sstream>
 
+using json = nlohmann::json;
 using namespace std::chrono;
 
 WebRTCHandler::WebRTCHandler(std::shared_ptr<PubSubBroker> broker)
@@ -240,14 +242,16 @@ void WebRTCHandler::sendOffer(const std::string& callId,
                                const std::string& sdpOffer) {
     std::lock_guard<std::mutex> lock(mutex_);
     
-    std::stringstream signalData;
-    signalData << "{\"callId\":\"" << callId << "\","
-               << "\"from\":\"" << fromUserId << "\","
-               << "\"sdp\":" << sdpOffer << "}";
+    // Use nlohmann::json for proper escaping
+    json signalData = {
+        {"callId", callId},
+        {"from", fromUserId},
+        {"sdp", sdpOffer}
+    };
     
-    sendSignal(toUserId, "webrtc_offer", signalData.str());
+    sendSignal(toUserId, "webrtc_offer", signalData.dump());
     
-    Logger::debug("SDP Offer sent: " + callId + " -> " + toUserId);
+    Logger::info("SDP Offer sent: " + callId + " -> " + toUserId);
 }
 
 void WebRTCHandler::sendAnswer(const std::string& callId,
@@ -264,26 +268,30 @@ void WebRTCHandler::sendAnswer(const std::string& callId,
         ).count();
     }
     
-    std::stringstream signalData;
-    signalData << "{\"callId\":\"" << callId << "\","
-               << "\"from\":\"" << fromUserId << "\","
-               << "\"sdp\":" << sdpAnswer << "}";
+    // Use nlohmann::json for proper escaping
+    json signalData = {
+        {"callId", callId},
+        {"from", fromUserId},
+        {"sdp", sdpAnswer}
+    };
     
-    sendSignal(toUserId, "webrtc_answer", signalData.str());
+    sendSignal(toUserId, "webrtc_answer", signalData.dump());
     
-    Logger::debug("SDP Answer sent: " + callId + " -> " + toUserId);
+    Logger::info("SDP Answer sent: " + callId + " -> " + toUserId);
 }
 
 void WebRTCHandler::sendIceCandidate(const std::string& callId,
                                       const std::string& fromUserId,
                                       const std::string& toUserId,
                                       const std::string& candidate) {
-    std::stringstream signalData;
-    signalData << "{\"callId\":\"" << callId << "\","
-               << "\"from\":\"" << fromUserId << "\","
-               << "\"candidate\":" << candidate << "}";
+    // Use nlohmann::json for proper escaping
+    json signalData = {
+        {"callId", callId},
+        {"from", fromUserId},
+        {"candidate", candidate}
+    };
     
-    sendSignal(toUserId, "webrtc_ice", signalData.str());
+    sendSignal(toUserId, "webrtc_ice", signalData.dump());
     
     Logger::debug("ICE Candidate sent: " + callId + " -> " + toUserId);
 }
@@ -454,13 +462,22 @@ void WebRTCHandler::broadcastToParticipants(const CallSession& session,
 void WebRTCHandler::sendSignal(const std::string& targetUserId,
                                 const std::string& signalType,
                                 const std::string& data) {
-    std::string topic = "user:" + targetUserId;
+    // Build signal message
+    json signalMsg = {
+        {"type", signalType},
+        {"data", json::parse(data)}
+    };
     
-    std::stringstream ss;
-    ss << "{\"type\":\"" << signalType << "\","
-       << "\"data\":" << data << "}";
+    std::string message = signalMsg.dump();
     
-    broker_->publish(topic, ss.str());
-    
-    Logger::debug("Signal sent: " + signalType + " -> " + targetUserId);
+    // Use callback if available (direct WebSocket delivery)
+    if (sendToUserCallback_) {
+        sendToUserCallback_(targetUserId, message);
+        Logger::info("Signal sent via callback: " + signalType + " -> " + targetUserId);
+    } else {
+        // Fallback to PubSub (won't work without subscribers)
+        std::string topic = "user:" + targetUserId;
+        broker_->publish(topic, message);
+        Logger::info("Signal sent via PubSub (may not be delivered): " + signalType + " -> " + targetUserId);
+    }
 }

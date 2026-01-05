@@ -12,7 +12,7 @@
 #include "database/mysql_client.h"
 #include "../protocol_chatbox1.h"
 
-// Forward declaration
+// Forward declarations
 class GeminiClient;
 
 /**

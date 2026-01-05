@@ -29,15 +29,22 @@ export function CallModal() {
 
     useEffect(() => {
         if (localVideoRef.current && localStream) {
+            console.log('🎥 Setting local video stream:', localStream.getTracks().map(t => t.kind));
             localVideoRef.current.srcObject = localStream
         }
     }, [localStream])
 
     useEffect(() => {
         if (remoteVideoRef.current && remoteStream) {
+            console.log('📺 Setting remote video stream:', remoteStream.getTracks().map(t => t.kind));
             remoteVideoRef.current.srcObject = remoteStream
         }
     }, [remoteStream])
+
+    // Debug log for streams
+    useEffect(() => {
+        console.log('📊 CallModal streams - local:', !!localStream, 'remote:', !!remoteStream, 'status:', status);
+    }, [localStream, remoteStream, status])
 
     const handleAccept = () => {
         if (callId && remoteUserId) {

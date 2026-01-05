@@ -44,6 +44,39 @@ export function CallManager() {
         isNegotiating.current = false
     }, [setLocalStream, setRemoteStream])
 
+    // Get local media stream (for callee before offer arrives)
+    const getLocalStream = useCallback(async () => {
+        if (localStreamRef.current) {
+            console.log('⚠️ Local stream already exists')
+            return localStreamRef.current
+        }
+
+        try {
+            const constraints = {
+                video: callType === 'video' || callType === undefined,
+                audio: true
+            }
+
+            console.log('🎥 Requesting user media (pre-offer):', constraints)
+            const stream = await navigator.mediaDevices.getUserMedia(constraints)
+            
+            localStreamRef.current = stream
+            setLocalStream(stream)
+            console.log('✅ Got local stream with tracks:', stream.getTracks().map(t => t.kind))
+            return stream
+        } catch (err) {
+            console.error('❌ Failed to get local stream:', err)
+            if (err instanceof Error) {
+                if (err.name === 'NotAllowedError') {
+                    alert('Camera/microphone access denied. Please allow access to continue.')
+                } else if (err.name === 'NotFoundError') {
+                    alert('No camera/microphone found. Please check your devices.')
+                }
+            }
+            return null
+        }
+    }, [callType, setLocalStream])
+
     // Setup PeerConnection with proper error handling
     const setupPeerConnection = useCallback(async (isInitiator: boolean) => {
         if (peerConnection.current) {
@@ -102,22 +135,27 @@ export function CallManager() {
                 }
             }
 
-            // Get user media
-            const constraints = {
-                video: callType === 'video' || callType === undefined,
-                audio: true
-            }
+            // Get user media - reuse existing stream if available
+            let stream = localStreamRef.current
+            if (!stream) {
+                const constraints = {
+                    video: callType === 'video' || callType === undefined,
+                    audio: true
+                }
 
-            console.log('🎥 Requesting user media:', constraints)
-            const stream = await navigator.mediaDevices.getUserMedia(constraints)
-            
-            localStreamRef.current = stream
-            setLocalStream(stream)
-            console.log('✅ Got local stream with tracks:', stream.getTracks().map(t => t.kind))
+                console.log('🎥 Requesting user media:', constraints)
+                stream = await navigator.mediaDevices.getUserMedia(constraints)
+                
+                localStreamRef.current = stream
+                setLocalStream(stream)
+                console.log('✅ Got local stream with tracks:', stream.getTracks().map(t => t.kind))
+            } else {
+                console.log('✅ Reusing existing local stream')
+            }
 
             // Add tracks to peer connection
             stream.getTracks().forEach(track => {
-                pc.addTrack(track, stream)
+                pc.addTrack(track, stream!)
                 console.log('➕ Added track:', track.kind)
             })
 
@@ -161,11 +199,14 @@ export function CallManager() {
     // Signal Listener with improved error handling
     useEffect(() => {
         const handleSignal = async (e: Event) => {
-            const data = (e as CustomEvent).detail
-            console.log('📨 Received WebRTC signal:', data.type)
+            const message = (e as CustomEvent).detail
+            // Message format: { type: "webrtc_xxx", data: {...} }
+            const signalType = message.type
+            const data = message.data || message  // Extract nested data, fallback to message itself
+            console.log('📨 Received WebRTC signal:', signalType, data)
 
             try {
-                switch (data.type) {
+                switch (signalType) {
                     case 'call_accepted':
                         // Caller receives this. Start negotiation.
                         console.log('✅ Call accepted, setting up connection...')
@@ -252,6 +293,15 @@ export function CallManager() {
             console.log('🔇 Stopped listening for WebRTC signals')
         }
     }, [sendSignal, setupPeerConnection, cleanup])
+
+    // When callee accepts the call (status changes to connected), get local stream immediately
+    // This ensures the local video shows before the offer arrives
+    useEffect(() => {
+        if (status === 'connected' && !localStreamRef.current) {
+            console.log('📹 Status connected, getting local stream for callee...')
+            getLocalStream()
+        }
+    }, [status, getLocalStream])
 
     // Cleanup on unmount or when call ends
     useEffect(() => {

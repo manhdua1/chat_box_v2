@@ -15,10 +15,14 @@ interface WatchModalProps {
 function getEmbedUrl(url: string): string {
     if (!url) return '';
     
+    // Get current origin for YouTube API
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    
     // YouTube
     const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
     if (ytMatch) {
-        return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`;
+        // Add origin parameter to fix Error 153 and enable JS API
+        return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(origin)}&rel=0&modestbranding=1`;
     }
     
     // Vimeo
@@ -92,11 +96,11 @@ export function WatchModal({
         onClose();
     };
 
-    // Sample video suggestions
+    // Sample video suggestions (verified embeddable videos)
     const videoSuggestions = [
-        { title: 'Big Buck Bunny', url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ', thumbnail: '🐰' },
-        { title: 'Sintel', url: 'https://www.youtube.com/watch?v=eRsGyueVLvQ', thumbnail: '🐉' },
-        { title: 'Elephant Dream', url: 'https://www.youtube.com/watch?v=TLkA0RELQ1g', thumbnail: '🐘' },
+        { title: 'Big Buck Bunny (Blender)', url: 'https://www.youtube.com/watch?v=YE7VzlLtp-4', thumbnail: '🐰' },
+        { title: 'Sintel (Blender)', url: 'https://www.youtube.com/watch?v=eRsGyueVLvQ', thumbnail: '🐉' },
+        { title: 'Tears of Steel', url: 'https://www.youtube.com/watch?v=R6MlUcmOul8', thumbnail: '🤖' },
     ];
 
     if (!isOpen) return null;
@@ -157,7 +161,9 @@ export function WatchModal({
                                         src={embedUrl}
                                         className="w-full h-full"
                                         allowFullScreen
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                        referrerPolicy="strict-origin-when-cross-origin"
+                                        title="Watch Together Video"
                                     />
                                 )}
                             </div>

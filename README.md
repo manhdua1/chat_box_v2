@@ -1,8 +1,8 @@
 # ChatBox Web - Real-time Chat Application
 
-**Last Updated:** January 1, 2026
+**Last Updated:** January 5, 2026
 
-A full-featured real-time chat application with WebSocket communication, MySQL database, and modern React UI.
+A full-featured real-time chat application with WebSocket communication, MySQL database, modern React UI, and AI-powered assistant.
 
 ## 🚀 Quick Start
 
@@ -50,6 +50,7 @@ npm run dev
 - ⚠️ Polls & Voting
 - ⚠️ Games (Tic-Tac-Toe)
 - ⚠️ Watch Together
+- ✅ AI Chat Assistant (Gemini API)
 
 ---
 

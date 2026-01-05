@@ -33,10 +33,6 @@ function App() {
         startCall,
         // New feature hooks
         typingUsers,
-        aiMessages,
-        aiLoading,
-        sendAIMessage,
-        clearAIMessages,
         createPoll,
         votePoll,
         inviteGame,
@@ -47,6 +43,13 @@ function App() {
         myPresence,
         updatePresence,
         updateProfile,
+        profileUpdate,
+        clearProfileUpdate,
+        // AI Chat
+        aiMessages,
+        aiLoading,
+        sendAIMessage,
+        clearAIMessages,
         // Message actions
         pinMessage,
         replyMessage,
@@ -72,12 +75,39 @@ function App() {
         }
     }, []);
 
+    // Update currentUser when profile is updated
+    useEffect(() => {
+        if (profileUpdate && currentUser && profileUpdate.userId === currentUser.id) {
+            const updatedUser = {
+                ...currentUser,
+                username: profileUpdate.displayName || currentUser.username,
+                avatar: profileUpdate.avatar || currentUser.avatar
+            };
+            setCurrentUser(updatedUser);
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            console.log('✅ Updated currentUser after profile change:', updatedUser);
+            clearProfileUpdate();
+        }
+    }, [profileUpdate, currentUser, clearProfileUpdate]);
+
     // Debug: log messages state
     useEffect(() => {
-        console.log('📊 Messages state updated:', messages);
+        console.log('📊 App Messages state updated:', messages);
         console.log('📊 Current room:', currentRoom);
-        console.log('📊 Messages for current room:', messages[currentRoom || '']);
+        console.log('📊 Messages for current room:', currentRoom ? messages[currentRoom] : 'no room');
+        console.log('📊 All room keys:', Object.keys(messages));
     }, [messages, currentRoom]);
+
+    // Debug: log polls state
+    useEffect(() => {
+        console.log('🗳️ App Polls state updated:', polls);
+        console.log('🗳️ Polls count:', Object.keys(polls).length);
+        console.log('🗳️ Poll roomIds:', Object.values(polls).map((p: any) => p.roomId));
+    }, [polls]);
+
+    // Force re-render when messages change for current room
+    const currentMessages = currentRoom ? messages[currentRoom] || [] : [];
+    console.log('🔄 currentMessages computed:', currentMessages.length);
 
     const handleLogin = async (username: string, password: string) => {
         try {
@@ -115,12 +145,14 @@ function App() {
     };
 
     const handleRoomSelect = (roomId: string) => {
+        console.log('🚪 Room select:', { from: currentRoom, to: roomId });
         if (currentRoom) {
             leaveRoom(currentRoom);
         }
         setCurrentRoom(roomId);
         setCurrentRoomId(roomId); // Sync with hook state
         joinRoom(roomId);
+        console.log('🚪 Room changed to:', roomId);
     };
 
     if (!isAuthenticated) {
@@ -146,22 +178,25 @@ function App() {
                 myPresence={myPresence}
                 onUpdatePresence={updatePresence}
                 onUpdateProfile={updateProfile}
+                onStartCall={(userId, username, type) => startCall(userId, username, type)}
+                onBlockUser={blockUser}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
                 aiMessages={aiMessages}
                 aiLoading={aiLoading}
                 onSendAIMessage={sendAIMessage}
                 onClearAIMessages={clearAIMessages}
-                onStartCall={(userId, type) => startCall(userId, type)}
-                onBlockUser={blockUser}
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
             />
 
             <ChatArea
                 currentRoom={currentRoom}
                 currentUser={currentUser}
-                messages={messages[currentRoom || ''] || []}
+                messages={currentMessages}
                 rooms={rooms}
-                onSendMessage={(content) => sendMessage(currentRoom!, content)}
+                onSendMessage={(content) => {
+                    console.log('📨 ChatArea onSendMessage:', { currentRoom, content });
+                    sendMessage(currentRoom!, content);
+                }}
                 onToggleRightPanel={() => setShowRightPanel(!showRightPanel)}
                 onEditMessage={(messageId, newContent) => editMessage(messageId, newContent)}
                 onDeleteMessage={(messageId) => deleteMessage(messageId)}
@@ -169,14 +204,11 @@ function App() {
                 onStartCall={currentRoom?.startsWith('dm_') ? (type) => {
                     // Extract user ID from DM room ID (format: dm_userId)
                     const targetUserId = currentRoom.replace('dm_', '');
-                    startCall(targetUserId, type);
+                    const targetUser = users.find(u => u.id === targetUserId);
+                    startCall(targetUserId, targetUser?.username || 'Unknown', type);
                 } : undefined}
                 // New feature props
                 typingUsers={typingUsers.filter(u => u.roomId === currentRoom)}
-                aiMessages={aiMessages}
-                aiLoading={aiLoading}
-                onSendAIMessage={sendAIMessage}
-                onClearAIMessages={clearAIMessages}
                 onCreatePoll={createPoll}
                 onVotePoll={votePoll}
                 polls={polls}
@@ -190,6 +222,11 @@ function App() {
                 onPinMessage={(messageId) => currentRoom && pinMessage(messageId, currentRoom)}
                 onReplyMessage={(content, replyToId) => currentRoom && replyMessage(content, replyToId, currentRoom)}
                 onForwardMessage={forwardMessage}
+                // AI Chat
+                aiMessages={aiMessages}
+                aiLoading={aiLoading}
+                onSendAIMessage={sendAIMessage}
+                onClearAIMessages={clearAIMessages}
             />
 
             {showRightPanel && currentRoom && activeTab === 'rooms' && (

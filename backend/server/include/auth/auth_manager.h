@@ -49,10 +49,18 @@ public:
     bool updateAvatar(const std::string& userId, const std::string& avatarUrl);
     
     /**
+     * Change password for a user
+     * @return empty string on success, error message on failure
+     */
+    std::string changePassword(const std::string& userId, 
+                               const std::string& currentPassword, 
+                               const std::string& newPassword);
+
+    /**
      * Clean up expired sessions (periodic task)
      */
     void cleanupExpiredSessions();
-    
+
     /**
      * Get database for direct access (e.g., saving messages)
      */

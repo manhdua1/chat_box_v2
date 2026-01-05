@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { Phone, Video, Bot, BarChart3, Gamepad2, Tv, Search, MessageCircle, Hash } from 'lucide-react';
+import { Phone, Video, BarChart3, Gamepad2, Tv, Search, MessageCircle, Hash } from 'lucide-react';
 import { TypingIndicator } from '../chat/TypingIndicator';
 import SearchMessages from '../search/SearchMessages';
 import { MessageInput } from '../chat/MessageInput';
@@ -8,7 +8,6 @@ import { useChatStore } from '@/stores/chatStore';
 
 // Lazy load heavy modals
 import { MessageBubble } from '../chat/MessageBubble';
-const AIBotModal = lazy(() => import('../chat/AIBotModal').then(module => ({ default: module.AIBotModal })));
 const PollModal = lazy(() => import('../chat/PollModal').then(module => ({ default: module.PollModal })));
 const GameModal = lazy(() => import('../chat/GameModal').then(module => ({ default: module.GameModal })));
 const WatchModal = lazy(() => import('../chat/WatchModal').then(module => ({ default: module.WatchModal })));
@@ -40,6 +39,7 @@ interface Poll {
     createdBy: string;
     createdAt: number;
     isClosed: boolean;
+    roomId?: string;
 }
 
 interface ChatAreaProps {
@@ -55,10 +55,6 @@ interface ChatAreaProps {
     onStartCall?: (type: 'audio' | 'video') => void;
     // New feature props
     typingUsers?: { id: string; username: string }[];
-    aiMessages?: { role: 'user' | 'assistant'; content: string; timestamp: number }[];
-    aiLoading?: boolean;
-    onSendAIMessage?: (message: string) => void;
-    onClearAIMessages?: () => void;
     onCreatePoll?: (question: string, options: string[]) => void;
     onVotePoll?: (pollId: string, optionId: string) => void;
     polls?: Record<string, Poll>;
@@ -72,6 +68,11 @@ interface ChatAreaProps {
     onPinMessage?: (messageId: string) => void;
     onReplyMessage?: (content: string, replyToId: string) => void;
     onForwardMessage?: (messageId: string, targetRoomId: string) => void;
+    // AI Chat (optional - displayed from Sidebar instead)
+    aiMessages?: Array<{ role: 'user' | 'assistant'; content: string; timestamp: number }>;
+    aiLoading?: boolean;
+    onSendAIMessage?: (message: string) => void;
+    onClearAIMessages?: () => void;
 }
 
 export default function ChatArea({
@@ -86,10 +87,6 @@ export default function ChatArea({
     onAddReaction,
     onStartCall,
     typingUsers = [],
-    aiMessages = [],
-    aiLoading = false,
-    onSendAIMessage,
-    onClearAIMessages,
     onCreatePoll,
     onVotePoll,
     polls = {},
@@ -138,7 +135,6 @@ export default function ChatArea({
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Modal states
-    const [showAIModal, setShowAIModal] = useState(false);
     const [showPollModal, setShowPollModal] = useState(false);
     const [showGameModal, setShowGameModal] = useState(false);
     const [showWatchModal, setShowWatchModal] = useState(false);
@@ -156,6 +152,12 @@ export default function ChatArea({
         console.log('🎯 ChatArea received messages prop:', messages);
         console.log('🎯 displayMessages:', displayMessages);
     }, [messages, displayMessages]);
+    
+    // Debug: log polls prop
+    useEffect(() => {
+        console.log('🗳️ ChatArea received polls prop:', polls);
+        console.log('🗳️ Polls count:', Object.keys(polls).length);
+    }, [polls]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -238,13 +240,6 @@ export default function ChatArea({
                 <div className="flex gap-2">
                     {/* New Feature Buttons */}
                     <button
-                        onClick={() => setShowAIModal(true)}
-                        className="w-10 h-10 flex items-center justify-center bg-white/5 border-none rounded-xl text-violet-400 cursor-pointer hover:bg-violet-500/20 transition-colors"
-                        title="AI Assistant"
-                    >
-                        <Bot size={20} />
-                    </button>
-                    <button
                         onClick={() => setShowPollModal(true)}
                         className="w-10 h-10 flex items-center justify-center bg-white/5 border-none rounded-xl text-emerald-400 cursor-pointer hover:bg-emerald-500/20 transition-colors"
                         title="Create Poll"
@@ -306,53 +301,99 @@ export default function ChatArea({
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
-                {/* Active Polls */}
-                {Object.values(polls).filter(poll => !poll.isClosed).length > 0 && (
-                    <div className="space-y-3 mb-4">
-                        {Object.values(polls)
-                            .filter(poll => !poll.isClosed)
-                            .map(poll => (
-                                <PollMessage
-                                    key={poll.id}
-                                    poll={poll}
-                                    currentUserId={currentUser?.id || ''}
-                                    onVote={onVotePoll || (() => {})}
-                                />
-                            ))}
-                    </div>
-                )}
-
-                {displayMessages.length === 0 && Object.keys(polls).length === 0 ? (
-                    <div className="text-center text-slate-500 p-10">
-                        <div className="text-5xl mb-4">💬</div>
-                        <p>No messages yet. Start the conversation!</p>
-                    </div>
-                ) : (
-                    displayMessages.map((message, index) => {
-                        const isOwn = message.senderId === currentUser?.id;
-                        const showAvatar = index === 0 || displayMessages[index - 1]?.senderId !== message.senderId;
-
+                {(() => {
+                    // Helper to normalize timestamp to milliseconds
+                    const normalizeTimestamp = (ts: number) => {
+                        // Timestamps < 10000000000 are likely in seconds
+                        if (ts < 10000000000) {
+                            return ts * 1000;
+                        }
+                        return ts;
+                    };
+                    
+                    // Get polls for current room from polls state only
+                    const roomPolls = Object.values(polls).filter(poll => poll.roomId === currentRoom);
+                    
+                    // Convert polls to items
+                    const pollItems = roomPolls.map(poll => ({
+                        type: 'poll' as const,
+                        id: `poll-${poll.id}`,
+                        timestamp: normalizeTimestamp(poll.createdAt),
+                        poll: poll,
+                        senderId: poll.createdBy,
+                        message: null as any,
+                    }));
+                    
+                    // Convert messages to items (exclude poll type messages to avoid duplicates)
+                    const messageItems = displayMessages
+                        .filter(msg => msg.type !== 'poll')
+                        .map(msg => ({
+                            type: 'message' as const,
+                            id: msg.id,
+                            timestamp: normalizeTimestamp(msg.timestamp),
+                            message: msg,
+                            poll: null as any,
+                            senderId: msg.senderId,
+                        }));
+                    
+                    // Merge and sort by timestamp
+                    const allItems = [...messageItems, ...pollItems]
+                        .sort((a, b) => a.timestamp - b.timestamp);
+                    
+                    if (allItems.length === 0) {
                         return (
-                            <MessageBubble
-                                key={message.id}
-                                message={message}
-                                isOwn={isOwn}
-                                showAvatar={showAvatar}
-                                isEditing={editingMessageId === message.id}
-                                onEditStart={handleEditStart}
-                                onEditSave={(id, content) => onEditMessage?.(id, content)}
-                                onEditCancel={handleEditCancel}
-                                onDelete={handleDelete}
-                                onPin={handlePinMessage}
-                                onReply={setReplyingTo}
-                                onReactionAdd={(id, emoji) => onAddReaction?.(id, emoji)}
-                                showReactionPicker={showReactionPicker === message.id}
-                                onToggleReactionPicker={setShowReactionPicker}
-                                quickReactions={quickReactions}
-                            />
+                            <div className="text-center text-slate-500 p-10">
+                                <div className="text-5xl mb-4">💬</div>
+                                <p>No messages yet. Start the conversation!</p>
+                            </div>
                         );
-                    })
-                )}
+                    }
+                    
+                    return allItems.map((item, index) => {
+                        const isOwn = item.senderId === currentUser?.id;
+                        const showAvatar = index === 0 || allItems[index - 1]?.senderId !== item.senderId;
+                        
+                        // Render poll
+                        if (item.type === 'poll' && item.poll) {
+                            return (
+                                <div key={item.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                                    <div className="max-w-md w-full">
+                                        <PollMessage
+                                            poll={item.poll}
+                                            currentUserId={currentUser?.id || ''}
+                                            onVote={onVotePoll || (() => {})}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        }
+                        
+                        // Render regular message
+                        if (item.message) {
+                            return (
+                                <MessageBubble
+                                    key={item.id}
+                                    message={item.message}
+                                    isOwn={isOwn}
+                                    showAvatar={showAvatar}
+                                    isEditing={editingMessageId === item.id}
+                                    onEditStart={handleEditStart}
+                                    onEditSave={(id, content) => onEditMessage?.(id, content)}
+                                    onEditCancel={handleEditCancel}
+                                    onDelete={handleDelete}
+                                    onPin={handlePinMessage}
+                                    onReply={setReplyingTo}
+                                    onReactionAdd={(id, emoji) => onAddReaction?.(id, emoji)}
+                                    showReactionPicker={showReactionPicker === item.id}
+                                    onToggleReactionPicker={setShowReactionPicker}
+                                    quickReactions={quickReactions}
+                                />
+                            );
+                        }
+                        
+                        return null;
+                    });
+                })()}
                 <div ref={messagesEndRef} />
             </div>
 
@@ -403,15 +444,6 @@ export default function ChatArea({
 
             {/* Modals wrapped in Suspense */}
             <Suspense fallback={null}>
-                <AIBotModal
-                    isOpen={showAIModal}
-                    onClose={() => setShowAIModal(false)}
-                    onSendMessage={onSendAIMessage || (() => { })}
-                    messages={aiMessages}
-                    loading={aiLoading}
-                    onClear={onClearAIMessages || (() => { })}
-                />
-
                 <PollModal
                     isOpen={showPollModal}
                     onClose={() => setShowPollModal(false)}

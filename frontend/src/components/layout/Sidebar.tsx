@@ -1,16 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import UserSearchModal from '../chat/UserSearchModal';
 import { useTheme } from '../providers/ThemeProvider';
-import { BlockedUsersModal } from '../users/BlockedUsersModal';
-import { RoomManager } from '../room/RoomManager';
 
 type PresenceStatus = 'online' | 'away' | 'dnd' | 'invisible';
-
-interface AIMessage {
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: number;
-}
 
 interface SidebarProps {
     currentUser: any;
@@ -26,18 +18,18 @@ interface SidebarProps {
     onUpdatePresence?: (status: PresenceStatus) => void;
     // Profile update
     onUpdateProfile?: (data: { displayName?: string; statusMessage?: string; avatar?: string }) => void;
-    // AI props
-    aiMessages?: AIMessage[];
-    aiLoading?: boolean;
-    onSendAIMessage?: (message: string) => void;
-    onClearAIMessages?: () => void;
     // Call
-    onStartCall?: (userId: string, type: 'audio' | 'video') => void;
+    onStartCall?: (userId: string, username: string, type: 'audio' | 'video') => void;
     // Block user
     onBlockUser?: (userId: string) => void;
     // Tab control from parent
     activeTab?: 'rooms' | 'users';
     onTabChange?: (tab: 'rooms' | 'users') => void;
+    // AI Chat
+    aiMessages?: Array<{ role: 'user' | 'assistant'; content: string; timestamp: number }>;
+    aiLoading?: boolean;
+    onSendAIMessage?: (message: string) => void;
+    onClearAIMessages?: () => void;
 }
 
 export default function Sidebar({
@@ -52,14 +44,14 @@ export default function Sidebar({
     myPresence = 'online',
     onUpdatePresence,
     onUpdateProfile,
-    aiMessages: wsAiMessages = [],
-    aiLoading = false,
-    onSendAIMessage,
-    onClearAIMessages: _onClearAIMessages,
     onStartCall,
     onBlockUser,
     activeTab: controlledActiveTab,
-    onTabChange
+    onTabChange,
+    aiMessages = [],
+    aiLoading = false,
+    onSendAIMessage,
+    onClearAIMessages
 }: SidebarProps) {
     const { theme, toggleTheme } = useTheme();
     const [searchQuery, setSearchQuery] = useState('');
@@ -80,74 +72,106 @@ export default function Sidebar({
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [showStatusDropdown, setShowStatusDropdown] = useState(false);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
     const [isAIChatOpen, setIsAIChatOpen] = useState(false);
-    const [isBotManagerOpen, setIsBotManagerOpen] = useState(false);
-    const [isBlockedUsersOpen, setIsBlockedUsersOpen] = useState(false);
-    const [isRoomManagerOpen, setIsRoomManagerOpen] = useState(false);
-    const [aiInput, setAiInput] = useState('');
     const statusDropdownRef = useRef<HTMLDivElement>(null);
+    const avatarInputRef = useRef<HTMLInputElement>(null);
 
     // Profile form state
     const [profileDisplayName, setProfileDisplayName] = useState('');
     const [profileStatusMessage, setProfileStatusMessage] = useState('');
+    const [profileAvatar, setProfileAvatar] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-    // Bot Manager state
-    const [bots, setBots] = useState([
-        { id: 'welcome', name: 'Welcome Bot', desc: 'Greets new members automatically', icon: '👋', active: true, commands: ['/welcome'] },
-        { id: 'mod', name: 'Moderation Bot', desc: 'Auto-moderates chat content', icon: '🛡️', active: false, commands: ['/kick', '/ban', '/mute'] },
-        { id: 'music', name: 'Music Bot', desc: 'Play music from YouTube', icon: '🎵', active: false, commands: ['/play', '/skip', '/queue'] },
-        { id: 'poll', name: 'Poll Bot', desc: 'Create and manage polls', icon: '📊', active: true, commands: ['/poll', '/vote'] },
-        { id: 'game', name: 'Game Bot', desc: 'Mini games and fun activities', icon: '🎮', active: false, commands: ['/dice', '/flip', '/trivia'] },
-    ]);
-    const [isCreatingBot, setIsCreatingBot] = useState(false);
-    const [newBotName, setNewBotName] = useState('');
-    const [newBotTrigger, setNewBotTrigger] = useState('');
-    const [newBotResponse, setNewBotResponse] = useState('');
-
-    const toggleBot = (botId: string) => {
-        setBots(prev => prev.map(bot => 
-            bot.id === botId ? { ...bot, active: !bot.active } : bot
-        ));
-    };
-
-    const createCustomBot = () => {
-        if (newBotName.trim() && newBotTrigger.trim() && newBotResponse.trim()) {
-            const newBot = {
-                id: `custom_${Date.now()}`,
-                name: newBotName,
-                desc: `Responds to ${newBotTrigger}`,
-                icon: '🤖',
-                active: true,
-                commands: [newBotTrigger],
-                isCustom: true,
-                response: newBotResponse
-            };
-            setBots(prev => [...prev, newBot]);
-            setNewBotName('');
-            setNewBotTrigger('');
-            setNewBotResponse('');
-            setIsCreatingBot(false);
-        }
-    };
-
-    const deleteBot = (botId: string) => {
-        setBots(prev => prev.filter(bot => bot.id !== botId));
-    };
+    // Change password state
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSuccess, setPasswordSuccess] = useState(false);
+    const [isChangingPassword, setIsChangingPassword] = useState(false);
 
     // Reset profile form when modal opens
     useEffect(() => {
         if (isSettingsOpen) {
             setProfileDisplayName(currentUser?.username || '');
-            setProfileStatusMessage('');
+            setProfileStatusMessage(currentUser?.statusMessage || '');
+            setProfileAvatar(currentUser?.avatar || '');
+            setSaveMessage(null);
         }
     }, [isSettingsOpen, currentUser]);
 
-    const handleSaveProfile = () => {
-        onUpdateProfile?.({
-            displayName: profileDisplayName,
-            statusMessage: profileStatusMessage
-        });
-        setIsSettingsOpen(false);
+    // Listen for password change result
+    useEffect(() => {
+        const handlePasswordResult = (event: CustomEvent) => {
+            const { success, message } = event.detail;
+            setIsChangingPassword(false);
+            if (success) {
+                setPasswordSuccess(true);
+                setPasswordError('');
+                setCurrentPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+                // Auto close after 2s
+                setTimeout(() => {
+                    setIsChangePasswordOpen(false);
+                }, 2000);
+            } else {
+                setPasswordError(message || 'Failed to change password');
+                setPasswordSuccess(false);
+            }
+        };
+        
+        window.addEventListener('password-change-result', handlePasswordResult as EventListener);
+        return () => {
+            window.removeEventListener('password-change-result', handlePasswordResult as EventListener);
+        };
+    }, []);
+
+    const handleSaveProfile = async () => {
+        setIsSaving(true);
+        setSaveMessage(null);
+        
+        try {
+            onUpdateProfile?.({
+                displayName: profileDisplayName,
+                statusMessage: profileStatusMessage,
+                avatar: profileAvatar
+            });
+            
+            setSaveMessage({ type: 'success', text: 'Profile updated successfully!' });
+            
+            // Auto close after 1.5s
+            setTimeout(() => {
+                setIsSettingsOpen(false);
+                setSaveMessage(null);
+            }, 1500);
+        } catch (error) {
+            setSaveMessage({ type: 'error', text: 'Failed to update profile' });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Handle avatar file selection
+    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            // Check file size (max 2MB)
+            if (file.size > 2 * 1024 * 1024) {
+                setSaveMessage({ type: 'error', text: 'Image must be less than 2MB' });
+                return;
+            }
+            
+            // Convert to base64
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target?.result as string;
+                setProfileAvatar(base64);
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
     // Close status dropdown when clicking outside
@@ -270,34 +294,20 @@ export default function Sidebar({
                         </svg>
                     </button>
 
-                    {/* AI Bot Button */}
+                    {/* Theme Toggle Button */}
+                    {/* AI Chat Button */}
                     <button
                         onClick={() => setIsAIChatOpen(true)}
-                        className="w-9 h-9 flex items-center justify-center bg-emerald-500/10 border-none rounded-lg text-emerald-400 cursor-pointer hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors"
+                        className="w-9 h-9 flex items-center justify-center bg-violet-500/10 border-none rounded-lg text-violet-400 cursor-pointer hover:bg-violet-500/20 hover:text-violet-300 transition-colors"
                         title="AI Assistant"
                     >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
                         </svg>
                     </button>
 
-                    {/* Bot Manager Button */}
-                    <button
-                        onClick={() => setIsBotManagerOpen(true)}
-                        className="w-9 h-9 flex items-center justify-center bg-blue-500/10 border-none rounded-lg text-blue-400 cursor-pointer hover:bg-blue-500/20 hover:text-blue-300 transition-colors"
-                        title="Bot Manager"
-                    >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="3" y="11" width="18" height="10" rx="2" />
-                            <circle cx="12" cy="5" r="3" />
-                            <line x1="12" y1="8" x2="12" y2="11" />
-                            <circle cx="8" cy="16" r="1" />
-                            <circle cx="16" cy="16" r="1" />
-                        </svg>
-                    </button>
-
-                    {/* Theme Toggle Button */}
                     <button
                         onClick={toggleTheme}
                         className="w-9 h-9 flex items-center justify-center bg-amber-500/10 border-none rounded-lg text-amber-400 cursor-pointer hover:bg-amber-500/20 hover:text-amber-300 transition-colors"
@@ -504,8 +514,8 @@ export default function Sidebar({
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    console.log('📞 Voice call button clicked for user:', user.id);
-                                                    onStartCall?.(user.id, 'audio');
+                                                    console.log('📞 Voice call button clicked for user:', user.id, user.username);
+                                                    onStartCall?.(user.id, user.username, 'audio');
                                                 }}
                                                 className="w-8 h-8 flex items-center justify-center bg-emerald-500/20 border-none rounded-lg text-emerald-400 cursor-pointer hover:bg-emerald-500/30 transition-colors"
                                                 title="Voice Call"
@@ -517,8 +527,8 @@ export default function Sidebar({
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    console.log('📹 Video call button clicked for user:', user.id);
-                                                    onStartCall?.(user.id, 'video');
+                                                    console.log('📹 Video call button clicked for user:', user.id, user.username);
+                                                    onStartCall?.(user.id, user.username, 'video');
                                                 }}
                                                 className="w-8 h-8 flex items-center justify-center bg-blue-500/20 border-none rounded-lg text-blue-400 cursor-pointer hover:bg-blue-500/30 transition-colors"
                                                 title="Video Call"
@@ -656,12 +666,20 @@ export default function Sidebar({
                         <div className="flex flex-col items-center mb-6">
                             <div className="relative group">
                                 <img
-                                    src={currentUser?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.username || 'user'}`}
+                                    src={profileAvatar || currentUser?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.username || 'user'}`}
                                     alt="Avatar"
-                                    className="w-24 h-24 rounded-2xl border-4 border-violet-500/30 mb-2"
+                                    className="w-24 h-24 rounded-2xl border-4 border-violet-500/30 mb-2 object-cover"
+                                />
+                                <input
+                                    type="file"
+                                    ref={avatarInputRef}
+                                    onChange={handleAvatarChange}
+                                    accept="image/*"
+                                    className="hidden"
                                 />
                                 <button
-                                    className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => avatarInputRef.current?.click()}
+                                    className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                                     title="Change avatar"
                                 >
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
@@ -670,8 +688,19 @@ export default function Sidebar({
                                     </svg>
                                 </button>
                             </div>
-                            <p className="text-xs text-slate-500 mt-1">Hover to change avatar</p>
+                            <p className="text-xs text-slate-500 mt-1">Click to change avatar</p>
                         </div>
+
+                        {/* Save Message */}
+                        {saveMessage && (
+                            <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${
+                                saveMessage.type === 'success' 
+                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            }`}>
+                                {saveMessage.type === 'success' ? '✓ ' : '✗ '}{saveMessage.text}
+                            </div>
+                        )}
 
                         {/* Profile Fields */}
                         <div className="space-y-4 mb-6">
@@ -725,43 +754,20 @@ export default function Sidebar({
                             </div>
                         </div>
 
-                        {/* Privacy Section */}
-                        <div className="border-t border-white/10 pt-4 mb-6">
-                            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Privacy & Management</p>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => {
-                                        setIsSettingsOpen(false);
-                                        setIsBlockedUsersOpen(true);
-                                    }}
-                                    className="flex-1 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="10" />
-                                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                                    </svg>
-                                    Blocked Users
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setIsSettingsOpen(false);
-                                        setIsRoomManagerOpen(true);
-                                    }}
-                                    className="flex-1 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                    </svg>
-                                    Manage Rooms
-                                </button>
-                            </div>
-                        </div>
-
                         {/* Danger Zone */}
                         <div className="border-t border-white/10 pt-4 mb-6">
                             <p className="text-xs font-medium text-red-400 uppercase tracking-wider mb-3">Danger Zone</p>
                             <div className="flex gap-2">
                                 <button
+                                    onClick={() => {
+                                        setIsSettingsOpen(false);
+                                        setIsChangePasswordOpen(true);
+                                        setCurrentPassword('');
+                                        setNewPassword('');
+                                        setConfirmPassword('');
+                                        setPasswordError('');
+                                        setPasswordSuccess(false);
+                                    }}
                                     className="flex-1 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
                                 >
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -787,16 +793,31 @@ export default function Sidebar({
                         {/* Action Buttons */}
                         <div className="flex justify-end gap-3">
                             <button
-                                onClick={() => setIsSettingsOpen(false)}
-                                className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm font-medium"
+                                onClick={() => {
+                                    setIsSettingsOpen(false);
+                                    setSaveMessage(null);
+                                }}
+                                disabled={isSaving}
+                                className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm font-medium disabled:opacity-50"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleSaveProfile}
-                                className="px-6 py-2 bg-gradient-to-r from-violet-500 to-indigo-500 hover:from-violet-600 hover:to-indigo-600 text-white rounded-xl text-sm font-medium transition-colors shadow-lg shadow-violet-500/20"
+                                disabled={isSaving}
+                                className="px-6 py-2 bg-gradient-to-r from-violet-500 to-indigo-500 hover:from-violet-600 hover:to-indigo-600 text-white rounded-xl text-sm font-medium transition-colors shadow-lg shadow-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                             >
-                                Save Changes
+                                {isSaving ? (
+                                    <>
+                                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                        </svg>
+                                        Saving...
+                                    </>
+                                ) : (
+                                    'Save Changes'
+                                )}
                             </button>
                         </div>
                     </div>
@@ -813,272 +834,297 @@ export default function Sidebar({
                 onBlockUser={onBlockUser}
             />
 
-            {/* AI Chat Panel (Slide-in) */}
+            {/* Change Password Modal */}
+            {isChangePasswordOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="w-full max-w-md p-6 bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-xl">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-semibold text-white">Change Password</h3>
+                            <button
+                                onClick={() => setIsChangePasswordOpen(false)}
+                                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Success Message */}
+                        {passwordSuccess && (
+                            <div className="mb-4 p-3 rounded-xl text-sm font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+                                ✓ Password changed successfully!
+                            </div>
+                        )}
+
+                        {/* Error Message */}
+                        {passwordError && (
+                            <div className="mb-4 p-3 rounded-xl text-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                                ✗ {passwordError}
+                            </div>
+                        )}
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                                    Current Password
+                                </label>
+                                <input
+                                    type="password"
+                                    value={currentPassword}
+                                    onChange={(e) => setCurrentPassword(e.target.value)}
+                                    placeholder="Enter current password"
+                                    className="w-full p-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:border-violet-500 outline-none transition-colors"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                                    New Password
+                                </label>
+                                <input
+                                    type="password"
+                                    value={newPassword}
+                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    placeholder="Enter new password"
+                                    className="w-full p-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:border-violet-500 outline-none transition-colors"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                                    Confirm New Password
+                                </label>
+                                <input
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    placeholder="Confirm new password"
+                                    className="w-full p-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:border-violet-500 outline-none transition-colors"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button
+                                onClick={() => setIsChangePasswordOpen(false)}
+                                disabled={isChangingPassword}
+                                className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm font-medium"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    setPasswordError('');
+                                    setPasswordSuccess(false);
+                                    
+                                    if (!currentPassword || !newPassword || !confirmPassword) {
+                                        setPasswordError('All fields are required');
+                                        return;
+                                    }
+                                    
+                                    if (newPassword !== confirmPassword) {
+                                        setPasswordError('New passwords do not match');
+                                        return;
+                                    }
+                                    
+                                    if (newPassword.length < 6) {
+                                        setPasswordError('Password must be at least 6 characters');
+                                        return;
+                                    }
+                                    
+                                    setIsChangingPassword(true);
+                                    
+                                    try {
+                                        // Send change password request via WebSocket
+                                        const ws = (window as any).__chatbox_ws;
+                                        if (ws && ws.readyState === WebSocket.OPEN) {
+                                            ws.send(JSON.stringify({
+                                                type: 'change_password',
+                                                currentPassword,
+                                                newPassword
+                                            }));
+                                        }
+                                        
+                                        setPasswordSuccess(true);
+                                        setCurrentPassword('');
+                                        setNewPassword('');
+                                        setConfirmPassword('');
+                                        
+                                        // Auto close after 2s
+                                        setTimeout(() => {
+                                            setIsChangePasswordOpen(false);
+                                        }, 2000);
+                                    } catch (error) {
+                                        setPasswordError('Failed to change password');
+                                    } finally {
+                                        setIsChangingPassword(false);
+                                    }
+                                }}
+                                disabled={isChangingPassword}
+                                className="px-6 py-2 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white rounded-xl text-sm font-medium transition-colors shadow-lg shadow-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                {isChangingPassword ? (
+                                    <>
+                                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                        </svg>
+                                        Changing...
+                                    </>
+                                ) : (
+                                    'Change Password'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* AI Chat Panel - Slide in from right */}
             {isAIChatOpen && (
-                <div className="fixed inset-0 z-50 flex">
-                    <div className="flex-1 bg-black/30" onClick={() => setIsAIChatOpen(false)} />
-                    <div className="w-96 h-full bg-[var(--bg-primary)] border-l border-[var(--border)] flex flex-col shadow-2xl">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setIsAIChatOpen(false)}>
+                    <div 
+                        className="bg-[var(--bg-tertiary)] rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {/* Header */}
                         <div className="p-4 border-b border-white/10 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 flex items-center justify-center bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="3" />
-                                        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4" />
+                                        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                        <path d="M2 17l10 5 10-5" />
+                                        <path d="M2 12l10 5 10-5" />
                                     </svg>
                                 </div>
                                 <div>
-                                    <h3 className="text-white font-semibold">AI Assistant</h3>
-                                    <p className="text-emerald-400 text-xs">Powered by Gemini</p>
+                                    <h3 className="text-white font-semibold m-0">AI Assistant</h3>
+                                    <p className="text-xs text-slate-400 m-0">Powered by Gemini</p>
                                 </div>
                             </div>
-                            <button onClick={() => setIsAIChatOpen(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white bg-transparent border-none cursor-pointer rounded-lg hover:bg-white/10">
+                            <button
+                                onClick={() => setIsAIChatOpen(false)}
+                                className="w-8 h-8 flex items-center justify-center bg-transparent border-none rounded-lg text-slate-400 cursor-pointer hover:text-white hover:bg-white/10 transition-colors"
+                            >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
                                 </svg>
                             </button>
                         </div>
 
                         {/* Messages */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {wsAiMessages.length === 0 ? (
-                                <div className="text-center py-8">
-                                    <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center bg-emerald-500/20 rounded-2xl">
-                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="1.5">
-                                            <circle cx="12" cy="12" r="3" />
-                                            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4" />
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[300px] max-h-[50vh]">
+                            {aiMessages.length === 0 ? (
+                                <div className="text-center py-12">
+                                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-violet-500/20 flex items-center justify-center">
+                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400">
+                                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                                         </svg>
                                     </div>
-                                    <h4 className="text-white font-semibold mb-2">How can I help you?</h4>
-                                    <p className="text-slate-500 text-sm">Ask me anything about the chat app or get help with tasks.</p>
+                                    <p className="text-slate-400">Ask me anything!</p>
+                                    <p className="text-xs text-slate-500 mt-2">I can help with coding, explanations, and more</p>
                                 </div>
                             ) : (
-                                wsAiMessages.map((msg: AIMessage, i: number) => (
-                                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[80%] p-3 rounded-xl ${msg.role === 'user' ? 'bg-emerald-500 text-white' : 'bg-white/10 text-slate-200'}`}>
-                                            {msg.content}
+                                aiMessages.map((msg, idx) => (
+                                    <div
+                                        key={idx}
+                                        className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                                            msg.role === 'assistant'
+                                                ? 'bg-gradient-to-br from-violet-500 to-purple-600'
+                                                : 'bg-gradient-to-br from-blue-500 to-cyan-500'
+                                        }`}>
+                                            {msg.role === 'assistant' ? (
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                                                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                                    <path d="M2 17l10 5 10-5" />
+                                                </svg>
+                                            ) : (
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                                    <circle cx="12" cy="7" r="4" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                        <div className={`max-w-[80%] ${msg.role === 'user' ? 'text-right' : ''}`}>
+                                            <div className={`inline-block p-3 rounded-2xl text-sm ${
+                                                msg.role === 'assistant'
+                                                    ? 'bg-slate-800 text-slate-100 rounded-tl-sm'
+                                                    : 'bg-gradient-to-br from-blue-500 to-cyan-500 text-white rounded-tr-sm'
+                                            }`}>
+                                                <p className="whitespace-pre-wrap m-0">{msg.content}</p>
+                                            </div>
                                         </div>
                                     </div>
                                 ))
                             )}
                             {aiLoading && (
-                                <div className="flex justify-start">
-                                    <div className="bg-white/10 p-3 rounded-xl text-slate-400 flex items-center gap-2">
-                                        <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <circle cx="12" cy="12" r="10" opacity="0.3" />
-                                            <path d="M12 2a10 10 0 0 1 10 10" />
+                                <div className="flex gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
                                         </svg>
-                                        AI is thinking...
+                                    </div>
+                                    <div className="bg-slate-800 p-3 rounded-2xl rounded-tl-sm">
+                                        <div className="flex gap-1">
+                                            <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                            <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                            <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                        </div>
                                     </div>
                                 </div>
                             )}
                         </div>
 
                         {/* Input */}
-                        <div className="p-4 border-t border-white/10">
-                            <form onSubmit={(e) => {
+                        <form 
+                            onSubmit={(e) => {
                                 e.preventDefault();
-                                if (aiInput.trim() && onSendAIMessage) {
-                                    onSendAIMessage(aiInput);
-                                    setAiInput('');
+                                const input = (e.target as HTMLFormElement).elements.namedItem('aiInput') as HTMLInputElement;
+                                if (input.value.trim() && !aiLoading && onSendAIMessage) {
+                                    onSendAIMessage(input.value.trim());
+                                    input.value = '';
                                 }
-                            }} className="flex gap-2">
+                            }} 
+                            className="p-4 border-t border-white/10"
+                        >
+                            <div className="flex gap-2">
                                 <input
                                     type="text"
-                                    value={aiInput}
-                                    onChange={(e) => setAiInput(e.target.value)}
-                                    placeholder="Ask AI anything..."
-                                    className="flex-1 py-3 px-4 bg-slate-800 border border-white/10 rounded-xl text-white text-sm outline-none placeholder:text-slate-500 focus:border-emerald-500/50"
+                                    name="aiInput"
+                                    placeholder="Type your message..."
+                                    disabled={aiLoading}
+                                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm outline-none focus:border-violet-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
-                                <button type="submit" disabled={aiLoading} className="w-12 h-12 flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl transition-colors border-none cursor-pointer">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                                    </svg>
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Bot Manager Modal */}
-            {isBotManagerOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="w-full max-w-2xl bg-[var(--bg-tertiary)] rounded-2xl border border-[var(--border)] shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
-                        {/* Header */}
-                        <div className="p-4 border-b border-white/10 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                                        <rect x="3" y="11" width="18" height="10" rx="2" />
-                                        <circle cx="12" cy="5" r="3" /><line x1="12" y1="8" x2="12" y2="11" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3 className="text-white font-semibold">Bot Manager</h3>
-                                    <p className="text-blue-400 text-xs">{bots.filter(b => b.active).length} bots active</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setIsBotManagerOpen(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white bg-transparent border-none cursor-pointer rounded-lg hover:bg-white/10">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                            </button>
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 overflow-y-auto p-4">
-                            {/* Create Custom Bot Form */}
-                            {isCreatingBot ? (
-                                <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-                                    <h4 className="text-white font-semibold mb-4 flex items-center gap-2">
-                                        <span>🤖</span> Create Custom Bot
-                                    </h4>
-                                    <div className="space-y-3">
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">Bot Name</label>
-                                            <input
-                                                type="text"
-                                                value={newBotName}
-                                                onChange={(e) => setNewBotName(e.target.value)}
-                                                placeholder="My Custom Bot"
-                                                className="w-full p-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm outline-none focus:border-blue-500"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">Trigger Command</label>
-                                            <input
-                                                type="text"
-                                                value={newBotTrigger}
-                                                onChange={(e) => setNewBotTrigger(e.target.value)}
-                                                placeholder="/mycommand"
-                                                className="w-full p-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm outline-none focus:border-blue-500"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">Bot Response</label>
-                                            <textarea
-                                                value={newBotResponse}
-                                                onChange={(e) => setNewBotResponse(e.target.value)}
-                                                placeholder="Hello! I'm your custom bot 🤖"
-                                                rows={3}
-                                                className="w-full p-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm outline-none focus:border-blue-500 resize-none"
-                                            />
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={createCustomBot}
-                                                disabled={!newBotName.trim() || !newBotTrigger.trim() || !newBotResponse.trim()}
-                                                className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors border-none cursor-pointer"
-                                            >
-                                                Create Bot
-                                            </button>
-                                            <button
-                                                onClick={() => setIsCreatingBot(false)}
-                                                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors border-none cursor-pointer"
-                                            >
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : null}
-
-                            {/* Available Bots */}
-                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Available Bots</h4>
-                            <div className="space-y-2 mb-6">
-                                {bots.map((bot) => (
-                                    <div key={bot.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${bot.active ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/5'}`}>
-                                        <span className="text-2xl">{bot.icon}</span>
-                                        <div className="flex-1">
-                                            <p className="text-white font-medium text-sm flex items-center gap-2">
-                                                {bot.name}
-                                                {(bot as any).isCustom && <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">Custom</span>}
-                                            </p>
-                                            <p className="text-slate-500 text-xs">{bot.desc}</p>
-                                            <div className="flex gap-1 mt-1">
-                                                {bot.commands.map((cmd, i) => (
-                                                    <code key={i} className="text-[10px] px-1.5 py-0.5 bg-black/30 text-blue-400 rounded">{cmd}</code>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => toggleBot(bot.id)}
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border-none cursor-pointer ${bot.active ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-white/10 text-slate-400 hover:text-white hover:bg-white/20'}`}
-                                            >
-                                                {bot.active ? '✓ Active' : 'Enable'}
-                                            </button>
-                                            {(bot as any).isCustom && (
-                                                <button
-                                                    onClick={() => deleteBot(bot.id)}
-                                                    className="w-8 h-8 flex items-center justify-center text-red-400 hover:bg-red-500/20 rounded-lg transition-colors border-none cursor-pointer"
-                                                    title="Delete bot"
-                                                >
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <polyline points="3 6 5 6 21 6" />
-                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                                    </svg>
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Slash Commands Reference */}
-                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Quick Commands Reference</h4>
-                            <div className="grid grid-cols-2 gap-2">
-                                {[
-                                    { cmd: '/help', desc: 'Show all commands' },
-                                    { cmd: '/dice', desc: 'Roll a dice 🎲' },
-                                    { cmd: '/flip', desc: 'Flip a coin 🪙' },
-                                    { cmd: '/poll', desc: 'Create a poll 📊' },
-                                    { cmd: '/watch', desc: 'Watch together 📺' },
-                                    { cmd: '@ai', desc: 'Ask AI assistant 🤖' },
-                                ].map((item, i) => (
-                                    <div key={i} className="p-2 bg-black/30 rounded-lg flex items-center justify-between">
-                                        <code className="text-blue-400 font-mono text-sm">{item.cmd}</code>
-                                        <span className="text-slate-500 text-xs">{item.desc}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="p-4 border-t border-white/10 flex justify-between">
-                            {!isCreatingBot && (
+                                {aiMessages.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={onClearAIMessages}
+                                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-xl border-none cursor-pointer transition-colors"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
                                 <button
-                                    onClick={() => setIsCreatingBot(true)}
-                                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-medium transition-colors border-none cursor-pointer flex items-center gap-2"
+                                    type="submit"
+                                    disabled={aiLoading}
+                                    className={`px-4 py-2 rounded-xl text-white text-sm border-none cursor-pointer transition-all ${
+                                        !aiLoading
+                                            ? 'bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700'
+                                            : 'bg-slate-700 opacity-50 cursor-not-allowed'
+                                    }`}
                                 >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="12" y1="5" x2="12" y2="19" />
-                                        <line x1="5" y1="12" x2="19" y2="12" />
-                                    </svg>
-                                    Create Custom Bot
+                                    Send
                                 </button>
-                            )}
-                            <button onClick={() => { setIsBotManagerOpen(false); setIsCreatingBot(false); }} className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm transition-colors border-none cursor-pointer ml-auto">
-                                Close
-                            </button>
-                        </div>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
-
-            {/* Blocked Users Modal */}
-            <BlockedUsersModal
-                isOpen={isBlockedUsersOpen}
-                onClose={() => setIsBlockedUsersOpen(false)}
-            />
-
-            {/* Room Manager Modal */}
-            <RoomManager
-                isOpen={isRoomManagerOpen}
-                onClose={() => setIsRoomManagerOpen(false)}
-                onRoomSelect={onRoomSelect}
-            />
         </aside>
     );
 }

@@ -127,17 +127,26 @@ export function MessageInput({ onSend }: MessageInputProps) {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
 
-        if (!message.trim() || !isConnected) return
+        const trimmedMessage = message.trim()
+        if (!trimmedMessage || !isConnected) return
+
+        console.log('🚀 MessageInput.handleSubmit called with:', trimmedMessage)
+        console.log('🚀 onSend available:', !!onSend)
+        console.log('🚀 currentRoomId:', currentRoomId)
 
         // Stop typing indicator
         sendTypingStatus(false)
 
-        sendMessage(currentRoomId, message.trim())
-        setMessage('')
-
+        // Use onSend if provided (from ChatArea), otherwise use sendMessage directly
         if (onSend) {
-            onSend(message.trim())
+            console.log('🚀 Calling onSend with:', trimmedMessage)
+            onSend(trimmedMessage)
+        } else {
+            console.log('🚀 Calling sendMessage with:', currentRoomId, trimmedMessage)
+            sendMessage(currentRoomId, trimmedMessage)
         }
+        
+        setMessage('')
     }
 
     const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -1,6 +1,6 @@
 # 📋 Tài Liệu Tính Năng - Hệ Thống Chat Pub/Sub
 
-**Last Updated:** January 1, 2026
+**Last Updated:** January 5, 2026
 
 **Mục tiêu:** 9.5-10/10 điểm | **Timeline:** 7-8 tuần | **Team:** 2-4 người
 
