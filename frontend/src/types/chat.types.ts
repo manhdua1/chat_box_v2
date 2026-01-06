@@ -19,6 +19,7 @@ export interface Message {
     reactions?: Reaction[];
     isEdited?: boolean;
     isDeleted?: boolean;
+    isPinned?: boolean;
     replyTo?: string;
     replyToContent?: string;
     replyToSender?: string;

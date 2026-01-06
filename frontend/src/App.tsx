@@ -240,7 +240,7 @@ function App() {
                 onClearAIMessages={clearAIMessages}
             />
 
-            {showRightPanel && currentRoom && activeTab === 'rooms' && (
+            {showRightPanel && currentRoom && (
                 <RightPanel
                     roomId={currentRoom}
                     users={users}

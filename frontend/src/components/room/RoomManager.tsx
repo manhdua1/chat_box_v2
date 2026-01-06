@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Hash, Lock, Users, Loader2, Trash2, LogOut, Settings, MessageCircle } from 'lucide-react'
+import { X, Plus, Hash, Lock, Users, Loader2, LogOut, Settings, MessageCircle } from 'lucide-react'
 import { useWebSocket } from '@/contexts/WebSocketContext'
 import { useChatStore } from '@/stores/chatStore'
 
@@ -12,7 +12,7 @@ interface RoomManagerProps {
 export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps) {
     console.log('🔍 RoomManager render, isOpen:', isOpen)
     
-    let ws, rooms, createRoom, joinRoom, leaveRoom, deleteRoom, currentRoomId, setCurrentRoomId
+    let ws, rooms, createRoom, joinRoom, leaveRoom, currentRoomId, setCurrentRoomId
     let onlineUsers
     
     try {
@@ -22,7 +22,6 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
         createRoom = wsContext.createRoom
         joinRoom = wsContext.joinRoom
         leaveRoom = wsContext.leaveRoom
-        deleteRoom = wsContext.deleteRoom
         currentRoomId = wsContext.currentRoomId
         setCurrentRoomId = wsContext.setCurrentRoomId
         
@@ -174,16 +173,6 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
         }
     }
 
-    const handleDeleteRoom = (roomId: string) => {
-        if (roomId === 'global') return
-        if (confirm('Are you sure you want to delete this room?')) {
-            deleteRoom(roomId)
-            if (currentRoomId === roomId) {
-                setCurrentRoomId('global')
-            }
-        }
-    }
-
     const handleSelectRoom = (roomId: string) => {
         if (onRoomSelect) {
             onRoomSelect(roomId)
@@ -304,22 +293,13 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
                                         </button>
                                         
                                         {roomId !== 'global' && (
-                                            <div className="flex items-center gap-1">
-                                                <button
-                                                    onClick={() => handleLeaveRoom(roomId)}
-                                                    className="p-2 text-slate-400 hover:text-yellow-400 hover:bg-yellow-400/10 rounded-lg transition-colors"
-                                                    title="Leave room"
-                                                >
-                                                    <LogOut className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteRoom(roomId)}
-                                                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                                                    title="Delete room"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
+                                            <button
+                                                onClick={() => handleLeaveRoom(roomId)}
+                                                className="p-2 text-slate-400 hover:text-yellow-400 hover:bg-yellow-400/10 rounded-lg transition-colors"
+                                                title="Leave room"
+                                            >
+                                                <LogOut className="w-4 h-4" />
+                                            </button>
                                         )}
                                     </div>
                                 )})
@@ -339,7 +319,7 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
                                         className="w-full px-4 py-2 bg-slate-900 text-white rounded-lg border border-slate-700 focus:border-purple-500 focus:outline-none"
                                     />
                                     <div className="flex gap-2">
-                                        {(['public', 'private', 'group'] as const).map((type) => (
+                                        {(['public', 'private'] as const).map((type) => (
                                             <button
                                                 key={type}
                                                 type="button"
@@ -352,7 +332,6 @@ export function RoomManager({ isOpen, onClose, onRoomSelect }: RoomManagerProps)
                                             >
                                                 {type === 'public' && <Hash className="w-4 h-4" />}
                                                 {type === 'private' && <Lock className="w-4 h-4" />}
-                                                {type === 'group' && <Users className="w-4 h-4" />}
                                                 <span className="capitalize text-sm">{type}</span>
                                             </button>
                                         ))}

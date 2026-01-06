@@ -183,6 +183,11 @@ export function useWebSocket() {
         switch (data.type) {
             case 'auth_success':
                 console.log('Authenticated');
+                // Auto-load rooms after successful authentication
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: 'get_rooms' }));
+                    wsRef.current.send(JSON.stringify({ type: 'get_users' }));
+                }
                 break;
 
             case 'chat':
@@ -312,6 +317,7 @@ export function useWebSocket() {
                 break;
 
             case 'message_pinned':
+                console.log('📌 Received message_pinned:', data);
                 setMessages(prev => {
                     const newMessages = { ...prev };
                     const roomId = data.roomId;
@@ -321,6 +327,7 @@ export function useWebSocket() {
                                 ? { ...m, isPinned: true }
                                 : m
                         );
+                        console.log('📌 Updated messages for room', roomId, newMessages[roomId].filter(m => m.isPinned));
                     }
                     return newMessages;
                 });

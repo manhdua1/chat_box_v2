@@ -106,7 +106,9 @@ export default function RightPanel({
 
     // Get pinned messages
     const pinnedMessages = useMemo(() => {
-        return messages.filter(msg => msg.isPinned);
+        const pinned = messages.filter(msg => msg.isPinned);
+        console.log('📌 Pinned messages:', pinned.length, pinned);
+        return pinned;
     }, [messages]);
 
     // Format time ago
